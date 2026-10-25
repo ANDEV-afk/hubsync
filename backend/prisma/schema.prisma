@@ -1,0 +1,116 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum NoteSyncStatus {
+  PENDING
+  SYNCED
+  FAILED
+}
+
+enum SyncJobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  PARTIAL
+  FAILED
+}
+
+enum SyncJobType {
+  CONTACTS
+  NOTES
+}
+
+model HubSpotConnection {
+  id             String   @id @default(cuid())
+  hubspotPortalId String  @unique
+
+  // OAuth tokens must be encrypted before storing them.
+  accessTokenEncrypted  String @db.Text
+  refreshTokenEncrypted String @db.Text
+  tokenExpiresAt        DateTime?
+
+  // Contact synchronization state
+  syncCursor    String?
+  lastSyncAt    DateTime?
+  syncStatus    String   @default("IDLE")
+
+  contacts  Contact[]
+  syncJobs  SyncJob[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Contact {
+  id                String   @id @default(cuid())
+  hubspotContactId  String
+  email             String?
+  firstName         String?
+  lastName          String?
+  properties        Json?
+
+  connectionId String
+  connection   HubSpotConnection @relation( fields: [connectionId], references: [id],onDelete: Cascade)
+
+  notes     Note[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The same HubSpot contact cannot be imported twice
+  // for the same connection.
+  @@unique([connectionId, hubspotContactId])
+  @@index([connectionId, email])
+}
+
+model Note {
+  id           String @id @default(cuid())
+  body         String @db.Text
+
+  contactId    String
+  contact      Contact @relation(fields: [contactId],references: [id],onDelete: Cascade)
+
+  hubspotNoteId String?
+  syncStatus    NoteSyncStatus @default(PENDING)
+  lastSyncError String? @db.Text
+  syncedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([contactId, syncStatus])
+}
+
+model SyncJob {
+  id           String        @id @default(cuid())
+  type         SyncJobType   @default(CONTACTS)
+  status       SyncJobStatus @default(QUEUED)
+  dedupeKey    String?       @unique
+
+  connectionId String
+  connection   HubSpotConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  cursor       String?
+  processed    Int           @default(0)
+  createdCount Int           @default(0)
+  updatedCount Int           @default(0)
+  failedCount  Int           @default(0)
+  attempts     Int           @default(0)
+  error        String?       @db.Text
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([connectionId, status])
+  @@index([status, createdAt])
+}
