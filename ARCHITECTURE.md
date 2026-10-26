@@ -9,7 +9,7 @@ BullMQ deliver work to the worker; they are not the public job-status store.
 ```mermaid
 flowchart LR
     Browser[React + Vite]
-    API[Express API :https://hubsync-backend.onrender.com]
+    API[Express API :https://hubsync-be.onrender.com]
     DB[(PostgreSQL)]
     Redis[(Redis)]
     Queue[BullMQ queue]
@@ -149,7 +149,7 @@ writes reduce the impact.
 ## API and frontend
 
 The frontend uses `VITE_API_BASE_URL`, defaulting to
-`https://hubsync-backend.onrender.com`. Its API helper handles JSON parsing, API errors, and
+`https://hubsync-be.onrender.com`. Its API helper handles JSON parsing, API errors, and
 network errors. Abort errors from replaced requests are ignored.
 
 The API uses `FRONTEND_URL` for CORS. On local development, the same port is

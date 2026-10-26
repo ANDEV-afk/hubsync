@@ -8,7 +8,7 @@
     "auth": {
       "type": "oauth",
       "redirectUrls": [
-        "https://hubsync-backend.onrender.com/auth/hubspot/callback"
+        "https://hubsync-be.onrender.com/auth/hubspot/callback"
       ],
       "requiredScopes": [
         "oauth",

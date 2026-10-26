@@ -18,7 +18,7 @@ function startNpm(args, cwd) {
 }
 
 async function isBackendRunning() {
-  const baseUrl = (process.env.VITE_API_BASE_URL ?? 'https://hubsync-backend.onrender.com').replace(/\/$/, '')
+  const baseUrl = (process.env.VITE_API_BASE_URL ?? 'https://hubsync-be.onrender.com').replace(/\/$/, '')
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 750)
 
