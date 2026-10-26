@@ -139,15 +139,21 @@ export async function enqueueContactSync(connectionId: string) {
       { jobId: syncJob.id },
     );
   } catch (error) {
-    await prisma.syncJob.update({
-      where: { id: syncJob.id },
-      data: {
-        status: "FAILED",
-        error: "Unable to enqueue synchronization job",
-        completedAt: new Date(),
-        dedupeKey: null,
-      },
-    });
+    await prisma.$transaction([
+      prisma.syncJob.update({
+        where: { id: syncJob.id },
+        data: {
+          status: "FAILED",
+          error: "Unable to enqueue synchronization job",
+          completedAt: new Date(),
+          dedupeKey: null,
+        },
+      }),
+      prisma.hubSpotConnection.update({
+        where: { id: connectionId },
+        data: { syncStatus: "FAILED" },
+      }),
+    ]);
 
     throw new AppError(503, "Synchronization queue is unavailable", "QUEUE_UNAVAILABLE");
   }
@@ -222,6 +228,25 @@ export async function enqueueNoteSync(noteId: string, connectionId: string) {
   }
 
   return { ...syncJob, duplicate: false };
+}
+
+export async function enqueuePendingNoteSyncs(connectionId: string) {
+  const pendingNotes = await prisma.note.findMany({
+    where: {
+      syncStatus: "PENDING",
+      hubspotNoteId: null,
+      contact: { connectionId },
+    },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const jobs = [];
+  for (const note of pendingNotes) {
+    jobs.push(await enqueueNoteSync(note.id, connectionId));
+  }
+
+  return jobs;
 }
 
 export async function getSyncJobStatus(syncJobId: string, connectionId: string) {

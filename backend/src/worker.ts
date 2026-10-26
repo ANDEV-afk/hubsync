@@ -4,12 +4,15 @@ import prisma from "./lib/prisma.js";
 import { createRedisConnection } from "./lib/redis.js";
 import { logger } from "./lib/logger.js";
 import { AppError } from "./lib/errors.js";
+import { HubSpotApiError } from "./lib/hubspotApi.js";
 import {
   CONTACT_SYNC_QUEUE,
+  enqueuePendingNoteSyncs,
   type SyncJobData,
 } from "./services/syncJobs.js";
 import { processContactSyncJob } from "./services/contactSync.js";
 import { isNoteSyncNonRetryable, processNoteSyncJob } from "./services/notes.js";
+import { isHubSpotNotesSyncEnabled } from "./lib/config.js";
 
 const configuredConcurrency = Number(process.env.SYNC_WORKER_CONCURRENCY ?? "1");
 const concurrency = Number.isInteger(configuredConcurrency) && configuredConcurrency > 0
@@ -52,8 +55,6 @@ async function markRetryOrFailure(
   const nonRetryable =
     (error instanceof AppError && error.code === "HUBSPOT_AUTH_REQUIRED") ||
     isNoteSyncNonRetryable(error);
-  const preservePendingNote =
-    error instanceof AppError && error.code === "HUBSPOT_NOTES_SYNC_DISABLED";
   const isFinalAttempt = nonRetryable || job.attemptsMade + 1 >= maxAttempts;
 
   await prisma.syncJob.update({
@@ -84,7 +85,7 @@ async function markRetryOrFailure(
         prisma.note.update({
           where: { id: job.data.noteId },
           data: {
-            syncStatus: preservePendingNote ? "PENDING" : "FAILED",
+            syncStatus: "FAILED",
             lastSyncError: reason,
           },
         }),
@@ -148,6 +149,10 @@ const worker = new Worker<SyncJobData>(
         syncJobId: job.data.syncJobId,
         attempt: job.attemptsMade + 1,
         finalAttempt: job.attemptsMade + 1 >= (job.opts.attempts ?? 1),
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        appErrorCode: error instanceof AppError ? error.code : null,
+        hubspotStatus: error instanceof HubSpotApiError ? error.status : null,
+        hubspotApiCode: error instanceof HubSpotApiError ? error.apiCode ?? null : null,
       });
       if (
         (error instanceof AppError && error.code === "HUBSPOT_AUTH_REQUIRED") ||
@@ -167,6 +172,32 @@ const worker = new Worker<SyncJobData>(
   },
 );
 
+async function enqueuePendingNotesOnStartup(): Promise<void> {
+  if (!isHubSpotNotesSyncEnabled()) {
+    return;
+  }
+
+  const connections = await prisma.hubSpotConnection.findMany({
+    select: { id: true },
+  });
+
+  for (const connection of connections) {
+    const jobs = await enqueuePendingNoteSyncs(connection.id);
+    if (jobs.length > 0) {
+      logger.info("pending_note_syncs_queued", {
+        connectionId: connection.id,
+        count: jobs.length,
+      });
+    }
+  }
+}
+
+void enqueuePendingNotesOnStartup().catch((error: unknown) => {
+  logger.error("pending_note_sync_startup_failed", {
+    message: error instanceof Error ? error.message : "Unknown error",
+  });
+});
+
 worker.on("error", (error) => {
   logger.error("contact_sync_worker_error", {
     message: error.message,
@@ -184,7 +215,7 @@ worker.on("failed", (job, error) => {
     return;
   }
 
-  void Promise.all([
+  const updates: Promise<unknown>[] = [
     prisma.syncJob.update({
       where: { id: job.data.syncJobId },
       data: {
@@ -198,7 +229,21 @@ worker.on("failed", (job, error) => {
       where: { id: job.data.connectionId },
       data: { syncStatus: "FAILED" },
     }),
-  ]).catch((updateError: unknown) => {
+  ];
+
+  if ("noteId" in job.data && job.data.noteId) {
+    updates.push(
+      prisma.note.update({
+        where: { id: job.data.noteId },
+        data: {
+          syncStatus: "FAILED",
+          lastSyncError: "HubSpot note synchronization failed after retries.",
+        },
+      }),
+    );
+  }
+
+  void Promise.all(updates).catch((updateError: unknown) => {
     logger.error("contact_sync_failure_persistence_failed", {
       jobId: job.id,
       message: updateError instanceof Error ? updateError.message : "Unknown error",

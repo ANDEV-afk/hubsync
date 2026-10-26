@@ -2,53 +2,81 @@ import {
   Activity,
   AlertCircle,
   ArrowLeft,
+  ArrowUpRight,
+  Bell,
+  Check,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleDot,
   CloudDownload,
+  Command,
   Database,
   ExternalLink,
   FileText,
   HeartPulse,
+  HelpCircle,
   LayoutDashboard,
+  Link2,
   Loader2,
   Menu,
   MessageSquareText,
+  MoreHorizontal,
   RefreshCw,
   Search,
   Server,
   Settings,
   ShieldCheck,
+  Sparkles,
   Users,
   X,
   XCircle,
+  Zap,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, FormEvent, ReactNode, SVGProps } from 'react'
 import {
   ApiError,
   apiFetch,
   getApiBaseUrl,
   isTerminalSyncStatus,
 } from './lib/api'
-import type { Contact, ContactsResponse, CreateNoteResponse, HubspotStatus, Note, SyncEnqueueResponse, SyncJob } from './lib/api'
+import type {
+  Contact,
+  ContactsResponse,
+  CreateNoteResponse,
+  HubspotStatus,
+  Note,
+  SyncEnqueueResponse,
+  SyncJob,
+} from './lib/api'
 
 type View = 'overview' | 'contacts' | 'notes' | 'connection' | 'status'
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'dark'
 
 const POLL_INTERVAL_MS = 1200
 
 function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(resolve, milliseconds)
-    signal.addEventListener(
-      'abort',
-      () => {
-        window.clearTimeout(timeout)
-        reject(new DOMException('Polling cancelled', 'AbortError'))
-      },
-      { once: true },
-    )
+    if (signal.aborted) {
+      reject(new DOMException('Polling cancelled', 'AbortError'))
+      return
+    }
+
+    let timeout = 0
+    const onAbort = () => {
+      window.clearTimeout(timeout)
+      reject(new DOMException('Polling cancelled', 'AbortError'))
+    }
+    const finish = () => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }
+
+    timeout = window.setTimeout(finish, milliseconds)
+    signal.addEventListener('abort', onAbort, { once: true })
   })
 }
 
@@ -72,63 +100,113 @@ function displayName(contact: Contact): string {
   return name || contact.email || `Contact ${contact.hubspotContactId}`
 }
 
+function initials(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('') || '?'
+}
+
 function statusLabel(status: string | undefined): string {
   if (!status) return 'Unknown'
   return status.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase())
 }
 
-function statusClasses(status: string | undefined): string {
+function statusTone(status: string | undefined): 'success' | 'pending' | 'error' | 'neutral' {
   switch (status) {
     case 'COMPLETED':
     case 'SYNCED':
     case 'IDLE':
-      return 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+      return 'success'
     case 'QUEUED':
     case 'RUNNING':
     case 'PENDING':
-      return 'bg-amber-50 text-amber-700 ring-amber-200'
+      return 'pending'
     case 'PARTIAL':
-      return 'bg-orange-50 text-orange-700 ring-orange-200'
     case 'FAILED':
     case 'AUTH_REQUIRED':
-      return 'bg-rose-50 text-rose-700 ring-rose-200'
+      return 'error'
     default:
-      return 'bg-slate-100 text-slate-600 ring-slate-200'
+      return 'neutral'
   }
 }
 
 function StatusBadge({ status }: { status?: string }) {
+  const tone = statusTone(status)
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusClasses(status)}`}>
-      <CircleDot className="size-3" />
+    <span className={`status-badge status-badge--${tone}`}>
+      <CircleDot />
       {statusLabel(status)}
     </span>
   )
 }
 
-function LoadingBlock({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse rounded-xl bg-slate-100 ${className}`} />
+function Button({
+  children,
+  icon: Icon,
+  variant = 'secondary',
+  size = 'md',
+  className = '',
+  ...props
+}: {
+  children: ReactNode
+  icon?: LucideIcon
+  variant?: ButtonVariant
+  size?: 'md' | 'lg'
+  className?: string
+} & ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button className={`btn btn--${variant} btn--${size} ${className}`} {...props}>
+      {Icon ? <Icon /> : null}
+      {children}
+    </button>
+  )
 }
 
-function EmptyState({
-  icon: Icon,
+function PageHeader({
+  eyebrow,
   title,
-  message,
+  description,
   action,
 }: {
-  icon: typeof Users
+  eyebrow: string
   title: string
-  message: string
+  description: string
   action?: ReactNode
 }) {
   return (
-    <div className="flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center">
-      <div className="mb-4 rounded-2xl bg-slate-100 p-3 text-slate-500">
-        <Icon className="size-6" />
+    <div className="page-header">
+      <div>
+        <div className="page-header__eyebrow">{eyebrow}</div>
+        <h1>{title}</h1>
+        <p>{description}</p>
       </div>
-      <h3 className="text-base font-semibold text-slate-900">{title}</h3>
-      <p className="mt-1 max-w-sm text-sm text-slate-500">{message}</p>
-      {action ? <div className="mt-5">{action}</div> : null}
+      {action}
+    </div>
+  )
+}
+
+function AlertBanner({
+  type,
+  text,
+  onClose,
+}: {
+  type: 'success' | 'error'
+  text: string
+  onClose: () => void
+}) {
+  const success = type === 'success'
+  return (
+    <div className={`alert-banner alert-banner--${success ? 'success' : 'error'}`}>
+      <div className="alert-banner__body">
+        {success ? <CheckCircle2 /> : <AlertCircle />}
+        <span>{text}</span>
+      </div>
+      <button className="icon-button" onClick={onClose} aria-label="Dismiss message">
+        <X />
+      </button>
     </div>
   )
 }
@@ -194,10 +272,7 @@ function App() {
   const loadContacts = useCallback(async (targetPage: number, targetSearch: string, signal?: AbortSignal) => {
     setContactsLoading(true)
     try {
-      const params = new URLSearchParams({
-        page: String(targetPage),
-        limit: '25',
-      })
+      const params = new URLSearchParams({ page: String(targetPage), limit: '25' })
       if (targetSearch) params.set('search', targetSearch)
       const result = await apiFetch<ContactsResponse>(`/api/contacts?${params.toString()}`, { signal })
       setContacts(result.contacts)
@@ -245,12 +320,8 @@ function App() {
       : hubspotResult === 'error'
         ? { type: 'error' as const, text: reason === 'configuration_error' ? 'HubSpot configuration is incomplete.' : 'HubSpot connection could not be completed.' }
         : null
-    if (oauthBanner) {
-      window.setTimeout(() => setBanner(oauthBanner), 0)
-    }
-    if (hubspotResult === 'success') {
-      window.setTimeout(() => void loadConnection(controller.signal), 0)
-    }
+    if (oauthBanner) window.setTimeout(() => setBanner(oauthBanner), 0)
+    if (hubspotResult === 'success') window.setTimeout(() => void loadConnection(controller.signal), 0)
     if (hubspotResult) window.history.replaceState({}, document.title, window.location.pathname)
 
     return () => {
@@ -322,19 +393,17 @@ function App() {
         signal: controller.signal,
       })
       setSyncStart(queued)
-      const finished = isTerminalSyncStatus(queued.status)
-        ? null
-        : await pollJob(queued.jobId, controller)
+      const finished = isTerminalSyncStatus(queued.status) ? null : await pollJob(queued.jobId, controller)
 
       if (finished?.status === 'COMPLETED') {
-        setBanner({ type: 'success', text: 'Contact synchronization completed.' })
+        setBanner({ type: 'success', text: 'Contact synchronization completed successfully.' })
       } else if (finished?.status === 'PARTIAL') {
         setBanner({ type: 'error', text: 'Synchronization completed with partial failures.' })
       } else if (finished?.status === 'FAILED' || finished?.status === 'AUTH_REQUIRED') {
         setBanner({ type: 'error', text: finished.error ?? 'Contact synchronization failed.' })
       }
 
-      await Promise.all([loadConnection(), loadContacts(page, search)])
+      await Promise.all([loadConnection(controller.signal), loadContacts(page, search, controller.signal)])
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       setSyncError(errorMessage(error))
@@ -357,13 +426,13 @@ function App() {
       })
       setNotes((current) => [result.note, ...current])
       setNoteBody('')
-      setNoteMessage(result.sync.queued ? 'Note saved locally and queued for synchronization.' : 'Note saved locally. HubSpot note synchronization is not enabled.')
+      setNoteMessage(result.sync.queued ? 'Saved locally and queued for HubSpot sync.' : 'Saved locally. HubSpot sync is currently unavailable.')
       if (result.sync.jobId) {
         noteControllerRef.current?.abort()
         const controller = new AbortController()
         noteControllerRef.current = controller
         void pollJob(result.sync.jobId, controller)
-          .then(() => loadNotes(selectedContact.id))
+          .then(() => loadNotes(selectedContact.id, controller.signal))
           .catch((error: unknown) => {
             if (!(error instanceof DOMException && error.name === 'AbortError')) setNotesError(errorMessage(error))
           })
@@ -388,141 +457,161 @@ function App() {
   const syncButtonLabel = syncLoading ? 'Syncing contacts…' : 'Sync contacts'
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="flex min-h-screen">
-        <aside className={`${mobileNavOpen ? 'translate-x-0' : '-translate-x-full'} fixed inset-y-0 left-0 z-40 w-72 border-r border-slate-200 bg-white px-5 py-6 transition-transform lg:static lg:translate-x-0`}>
-          <div className="flex items-center justify-between px-2">
+    <div className="app-shell">
+      <aside className={`sidebar ${mobileNavOpen ? 'sidebar--open' : ''}`}>
+        <div className="sidebar__brand">
+          <div className="brand-mark"><Sparkles /></div>
+          <div>
+            <div className="brand-name">HubSync</div>
+            <div className="brand-caption">CRM workspace</div>
+          </div>
+          <button className="icon-button ml-auto !border-0 !bg-transparent !text-slate-400 lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation"><X /></button>
+        </div>
+
+        <div className="workspace-switcher">
+          <div>
+            <div className="workspace-switcher__label">Workspace</div>
+            <div className="workspace-switcher__name">HubSync operations</div>
+          </div>
+          <ChevronDown className="size-4 text-slate-500" />
+        </div>
+
+        <nav>
+          <div className="nav-section">
+            <div className="nav-section__title">Workspace</div>
+            <NavItem icon={LayoutDashboard} label="Overview" active={activeView === 'overview'} onClick={() => navigate('overview')} />
+            <NavItem icon={Users} label="Contacts" active={activeView === 'contacts'} onClick={() => navigate('contacts')} />
+            <NavItem icon={MessageSquareText} label="Notes" active={activeView === 'notes'} onClick={() => navigate('notes')} />
+          </div>
+          <div className="nav-section">
+            <div className="nav-section__title">Manage</div>
+            <NavItem icon={Link2} label="HubSpot connection" active={activeView === 'connection'} onClick={() => navigate('connection')} />
+            <NavItem icon={Settings} label="API status" active={activeView === 'status'} onClick={() => navigate('status')} />
+          </div>
+        </nav>
+
+        <div className="sidebar__footer">
+          <div className="system-status">
+            <span className={`status-dot ${health ? 'status-dot--online' : ''}`} />
+            Backend {health ? 'online' : 'unavailable'}
+          </div>
+          <div className="profile-chip">
+            <div className="avatar avatar--small">AJ</div>
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.24em] text-indigo-600">HubSync</p>
-              <h1 className="mt-1 text-xl font-bold tracking-tight text-slate-950">CRM workspace</h1>
+              <div className="profile-chip__name">Workspace owner</div>
+              <div className="profile-chip__role">Local development account</div>
             </div>
-            <button className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation">
-              <X className="size-5" />
-            </button>
           </div>
+        </div>
+      </aside>
 
-          <nav className="mt-10 space-y-1">
-            <SidebarItem icon={LayoutDashboard} label="Overview" active={activeView === 'overview'} onClick={() => navigate('overview')} />
-            <SidebarItem icon={Users} label="Contacts" active={activeView === 'contacts'} onClick={() => navigate('contacts')} />
-            <SidebarItem icon={MessageSquareText} label="Notes" active={activeView === 'notes'} onClick={() => navigate('notes')} />
-            <SidebarItem icon={ShieldCheck} label="HubSpot connection" active={activeView === 'connection'} onClick={() => navigate('connection')} />
-            <SidebarItem icon={Settings} label="API status" active={activeView === 'status'} onClick={() => navigate('status')} />
-          </nav>
+      {mobileNavOpen ? <button className="fixed inset-0 z-30 bg-slate-950/40 lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation overlay" /> : null}
 
-          <div className="absolute inset-x-5 bottom-6 rounded-2xl bg-slate-950 p-4 text-white">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
-              <span className={`size-2 rounded-full ${health ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-              Backend {health ? 'online' : 'unavailable'}
-            </div>
-            <p className="mt-2 text-xs leading-5 text-slate-400">Development interface for testing the HubSync API.</p>
-          </div>
-        </aside>
-
-        {mobileNavOpen ? <button className="fixed inset-0 z-30 bg-slate-950/30 lg:hidden" onClick={() => setMobileNavOpen(false)} aria-label="Close navigation overlay" /> : null}
-
-        <main className="min-w-0 flex-1">
-          <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 px-4 py-4 backdrop-blur sm:px-8">
-            <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <button className="rounded-xl border border-slate-200 p-2 text-slate-600 lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation">
-                  <Menu className="size-5" />
-                </button>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Backend console</p>
-                  <h2 className="text-lg font-bold text-slate-950">{viewTitle(activeView)}</h2>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                {connection?.connected ? <StatusBadge status={connection.syncStatus} /> : <span className="hidden text-sm text-slate-500 sm:inline">Not connected</span>}
-                <button className="hidden rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-200 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60 sm:inline-flex" onClick={() => void startContactSync()} disabled={syncLoading || !connection?.connected}>
-                  <CloudDownload className="mr-2 size-4" />
-                  {syncButtonLabel}
-                </button>
+      <div className="app-main">
+        <header className="topbar">
+          <div className="topbar__inner">
+            <div className="flex min-w-0 items-center gap-3">
+              <button className="icon-button lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation"><Menu /></button>
+              <div className="breadcrumb">
+                <span className="breadcrumb__eyebrow">Workspace</span>
+                <span className="text-slate-300">/</span>
+                <span className="breadcrumb__current">{viewTitle(activeView)}</span>
               </div>
             </div>
-          </header>
+            <div className="topbar__actions">
+              <div className="search-pill"><Search /><span>Quick search</span><span className="search-pill__shortcut"><Command className="mr-0.5 inline size-3" /> K</span></div>
+              <button className="icon-button" aria-label="Notifications"><Bell /></button>
+              {connection?.connected ? <StatusBadge status={connection.syncStatus ?? 'IDLE'} /> : <StatusBadge status="FAILED" />}
+              <Button icon={CloudDownload} variant="primary" onClick={() => void startContactSync()} disabled={syncLoading || !connection?.connected}>{syncButtonLabel}</Button>
+            </div>
+          </div>
+        </header>
 
-          <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-8 sm:py-8">
+        <main className="content">
+          <div className="space-y-4">
             {banner ? <AlertBanner type={banner.type} text={banner.text} onClose={() => setBanner(null)} /> : null}
             {connectionError ? <AlertBanner type="error" text={connectionError} onClose={() => setConnectionError(null)} /> : null}
-
-            {activeView === 'overview' ? (
-              <OverviewView
-                connection={connection}
-                connectionLoading={connectionLoading}
-                contactsTotal={contactsPagination.total}
-                syncStart={syncStart}
-                syncJob={syncJob}
-                syncLoading={syncLoading}
-                syncError={syncError}
-                onConnect={() => { window.location.href = `${getApiBaseUrl()}/auth/hubspot` }}
-                onSync={() => void startContactSync()}
-                onContacts={() => navigate('contacts')}
-              />
-            ) : null}
-
-            {activeView === 'contacts' ? (
-              <ContactsView
-                contacts={contacts}
-                loading={contactsLoading}
-                error={contactsError}
-                page={page}
-                pagination={contactsPagination}
-                searchInput={searchInput}
-                selectedContact={selectedContact}
-                notes={notes}
-                notesLoading={notesLoading}
-                notesError={notesError}
-                noteBody={noteBody}
-                noteSubmitting={noteSubmitting}
-                noteMessage={noteMessage}
-                selectedProperties={selectedProperties}
-                onSearchChange={setSearchInput}
-                onPageChange={setPage}
-                onRefresh={() => void loadContacts(page, search)}
-                onSelectContact={openContact}
-                onCloseDetails={() => setSelectedContact(null)}
-                onNoteBodyChange={setNoteBody}
-                onCreateNote={createNote}
-              />
-            ) : null}
-
-            {activeView === 'notes' ? (
-              <NotesView
-                contacts={contacts}
-                selectedContact={selectedContact}
-                notes={notes}
-                loading={notesLoading}
-                error={notesError}
-                noteBody={noteBody}
-                noteSubmitting={noteSubmitting}
-                noteMessage={noteMessage}
-                onSelectContact={openContact}
-                onNoteBodyChange={setNoteBody}
-                onCreateNote={createNote}
-                onContacts={() => navigate('contacts')}
-              />
-            ) : null}
-
-            {activeView === 'connection' ? (
-              <ConnectionView connection={connection} loading={connectionLoading} onConnect={() => { window.location.href = `${getApiBaseUrl()}/auth/hubspot` }} onRefresh={() => void loadConnection()} />
-            ) : null}
-
-            {activeView === 'status' ? (
-              <StatusView health={health} connection={connection} onRefresh={() => void Promise.all([loadHealth(), loadConnection()])} />
-            ) : null}
           </div>
+
+          {activeView === 'overview' ? (
+            <OverviewView
+              connection={connection}
+              connectionLoading={connectionLoading}
+              contactsTotal={contactsPagination.total}
+              health={health}
+              syncStart={syncStart}
+              syncJob={syncJob}
+              syncLoading={syncLoading}
+              syncError={syncError}
+              onConnect={() => { window.location.href = `${getApiBaseUrl()}/auth/hubspot` }}
+              onSync={() => void startContactSync()}
+              onContacts={() => navigate('contacts')}
+              onConnection={() => navigate('connection')}
+              onStatus={() => navigate('status')}
+            />
+          ) : null}
+
+          {activeView === 'contacts' ? (
+            <ContactsView
+              contacts={contacts}
+              loading={contactsLoading}
+              error={contactsError}
+              page={page}
+              pagination={contactsPagination}
+              searchInput={searchInput}
+              selectedContact={selectedContact}
+              notes={notes}
+              notesLoading={notesLoading}
+              notesError={notesError}
+              noteBody={noteBody}
+              noteSubmitting={noteSubmitting}
+              noteMessage={noteMessage}
+              selectedProperties={selectedProperties}
+              onSearchChange={setSearchInput}
+              onPageChange={setPage}
+              onRefresh={() => void loadContacts(page, search)}
+              onSelectContact={openContact}
+              onCloseDetails={() => setSelectedContact(null)}
+              onNoteBodyChange={setNoteBody}
+              onCreateNote={createNote}
+            />
+          ) : null}
+
+          {activeView === 'notes' ? (
+            <NotesView
+              contacts={contacts}
+              selectedContact={selectedContact}
+              notes={notes}
+              loading={notesLoading}
+              error={notesError}
+              noteBody={noteBody}
+              noteSubmitting={noteSubmitting}
+              noteMessage={noteMessage}
+              onSelectContact={openContact}
+              onNoteBodyChange={setNoteBody}
+              onCreateNote={createNote}
+              onContacts={() => navigate('contacts')}
+            />
+          ) : null}
+
+          {activeView === 'connection' ? (
+            <ConnectionView connection={connection} loading={connectionLoading} onConnect={() => { window.location.href = `${getApiBaseUrl()}/auth/hubspot` }} onRefresh={() => void loadConnection()} />
+          ) : null}
+
+          {activeView === 'status' ? (
+            <StatusView health={health} connection={connection} onRefresh={() => void Promise.all([loadHealth(), loadConnection()])} />
+          ) : null}
         </main>
       </div>
     </div>
   )
 }
 
-function SidebarItem({ icon: Icon, label, active, onClick }: { icon: typeof Users; label: string; active: boolean; onClick: () => void }) {
+function NavItem({ icon: Icon, label, active, onClick }: { icon: LucideIcon; label: string; active: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${active ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}>
-      <Icon className="size-4" />
-      {label}
+    <button className={`nav-item ${active ? 'nav-item--active' : ''}`} onClick={onClick}>
+      <Icon />
+      <span>{label}</span>
     </button>
   )
 }
@@ -531,23 +620,25 @@ function viewTitle(view: View): string {
   return { overview: 'Overview', contacts: 'Contacts', notes: 'Notes', connection: 'HubSpot connection', status: 'API status' }[view]
 }
 
-function AlertBanner({ type, text, onClose }: { type: 'success' | 'error'; text: string; onClose: () => void }) {
-  const success = type === 'success'
-  return (
-    <div className={`flex items-start justify-between gap-4 rounded-2xl border px-4 py-3 text-sm ${success ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-800'}`}>
-      <div className="flex items-start gap-2">
-        {success ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <AlertCircle className="mt-0.5 size-4 shrink-0" />}
-        <span>{text}</span>
-      </div>
-      <button onClick={onClose} className="shrink-0 rounded-md p-1 opacity-70 hover:bg-black/5" aria-label="Dismiss message"><X className="size-4" /></button>
-    </div>
-  )
-}
-
-function OverviewView({ connection, connectionLoading, contactsTotal, syncStart, syncJob, syncLoading, syncError, onConnect, onSync, onContacts }: {
+function OverviewView({
+  connection,
+  connectionLoading,
+  contactsTotal,
+  health,
+  syncStart,
+  syncJob,
+  syncLoading,
+  syncError,
+  onConnect,
+  onSync,
+  onContacts,
+  onConnection,
+  onStatus,
+}: {
   connection: HubspotStatus | null
   connectionLoading: boolean
   contactsTotal: number
+  health: { message: string } | null
   syncStart: SyncEnqueueResponse | null
   syncJob: SyncJob | null
   syncLoading: boolean
@@ -555,91 +646,361 @@ function OverviewView({ connection, connectionLoading, contactsTotal, syncStart,
   onConnect: () => void
   onSync: () => void
   onContacts: () => void
+  onConnection: () => void
+  onStatus: () => void
+}) {
+  const currentStatus = syncJob?.status ?? syncStart?.status ?? connection?.syncStatus
+
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        eyebrow="Workspace overview"
+        title="Keep your CRM in sync."
+        description="Monitor your HubSpot connection, import contacts, and keep every customer note connected to the right record."
+        action={<Button icon={RefreshCw} variant="secondary" onClick={onSync} disabled={syncLoading || !connection?.connected}>{syncLoading ? 'Sync in progress' : 'Run sync now'}</Button>}
+      />
+
+      <section className="overview-hero">
+        <div>
+          <div className="hero-kicker"><Sparkles /> CRM control center</div>
+          <h2>A clearer view of every customer relationship.</h2>
+          <p>HubSync gives your team one calm place to inspect real backend state, synchronize contacts, and add notes that follow the customer record.</p>
+          <div className="hero-actions">
+            {connection?.connected ? <Button icon={CloudDownload} variant="primary" size="lg" onClick={onSync} disabled={syncLoading}>{syncLoading ? 'Syncing contacts…' : 'Sync contacts'}</Button> : <Button icon={ExternalLink} variant="primary" size="lg" onClick={onConnect}>Connect HubSpot</Button>}
+            <Button icon={Users} variant="secondary" size="lg" onClick={onContacts}>Browse contacts</Button>
+          </div>
+        </div>
+        <div className="hero-summary">
+          <div className="hero-summary__heading"><span>Connection health</span><span>{connection?.connected ? 'Live' : 'Action needed'}</span></div>
+          <div className="hero-summary__value">{connectionLoading ? 'Checking…' : connection?.connected ? 'HubSpot connected' : 'Not connected'}</div>
+          <div className="hero-summary__meta">{connection?.portalId ? `Portal ${connection.portalId}` : 'Connect an account to unlock sync workflows.'}</div>
+          <div className="mt-5 flex items-center justify-between border-t border-white/10 pt-4 text-[11px] text-indigo-100">
+            <span>Last sync</span>
+            <span>{connection?.lastSyncAt ? formatDate(connection.lastSyncAt) : 'No completed run'}</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="metric-grid">
+        <MetricCard icon={Users} label="Contacts stored" value={contactsTotal.toLocaleString()} detail="Local records from HubSpot" tone="indigo" />
+        <MetricCard icon={ShieldCheck} label="Connection" value={connectionLoading ? 'Checking…' : connection?.connected ? 'Connected' : 'Needs setup'} detail={connection?.portalId ? `Portal ${connection.portalId}` : 'OAuth connection required'} tone={connection?.connected ? 'green' : 'amber'} />
+        <MetricCard icon={Activity} label="Sync status" value={statusLabel(currentStatus)} detail={syncJob?.completedAt ? formatDate(syncJob.completedAt) : 'Ready for your next run'} tone="amber" />
+        <MetricCard icon={HeartPulse} label="Backend health" value={health ? 'Operational' : 'Unavailable'} detail={health?.message ?? 'Check the API status page'} tone={health ? 'blue' : 'amber'} />
+      </section>
+
+      {syncError ? <div className="mt-5"><AlertBanner type="error" text={syncError} onClose={() => undefined} /></div> : null}
+
+      <section className="overview-grid">
+        <SyncActivityPanel job={syncJob} start={syncStart} loading={syncLoading} />
+        <WorkspacePanel
+          connection={connection}
+          onConnect={onConnect}
+          onContacts={onContacts}
+          onConnection={onConnection}
+          onStatus={onStatus}
+        />
+      </section>
+    </div>
+  )
+}
+
+function MetricCard({ icon: Icon, label, value, detail, tone }: { icon: LucideIcon; label: string; value: string; detail: string; tone: 'green' | 'indigo' | 'amber' | 'blue' }) {
+  return (
+    <div className="surface-card metric-card">
+      <div className="metric-card__top">
+        <span className={`metric-card__icon metric-card__icon--${tone}`}><Icon /></span>
+        <MoreHorizontal className="size-4 text-slate-300" />
+      </div>
+      <div className="metric-card__value">{value}</div>
+      <div className="metric-card__label">{label}</div>
+      <div className="metric-card__detail">{detail}</div>
+    </div>
+  )
+}
+
+function SyncActivityPanel({ job, start, loading }: { job: SyncJob | null; start: SyncEnqueueResponse | null; loading: boolean }) {
+  const status = job?.status ?? start?.status
+  const isActive = loading || status === 'QUEUED' || status === 'RUNNING'
+  const isCompleted = status === 'COMPLETED'
+  const hasRun = Boolean(job || start || loading)
+  return (
+    <section className="surface-card panel">
+      <div className="panel-heading">
+        <div>
+          <div className="panel-heading__eyebrow">Live activity</div>
+          <h3>Contact synchronization</h3>
+          <p>Track the latest background job without leaving the workspace.</p>
+        </div>
+        <div className="panel-heading__icon"><Zap /></div>
+      </div>
+      {hasRun ? (
+        <div className="progress-card">
+          <div className="progress-card__row">
+            <span className="progress-card__label">{status === 'COMPLETED' ? 'Latest run completed' : 'Pipeline stage'}</span>
+            <span className="progress-card__value">{statusLabel(status)}</span>
+          </div>
+          {isActive || isCompleted ? (
+            <div className="progress-track" aria-label={isCompleted ? 'Synchronization completed' : 'Synchronization in progress'}>
+              <div className={`progress-track__bar ${isActive ? 'progress-track__bar--indeterminate' : ''}`} style={isCompleted ? { width: '100%' } : undefined} />
+            </div>
+          ) : null}
+          <div className="progress-stats">
+            <ProgressStat label="Processed" value={job?.processed ?? 0} />
+            <ProgressStat label="Created" value={job?.createdCount ?? 0} />
+            <ProgressStat label="Updated" value={job?.updatedCount ?? 0} />
+          </div>
+          {job?.error ? <div className="mt-4 text-xs font-bold text-rose-600">{job.error}</div> : null}
+        </div>
+      ) : (
+        <div className="empty-state min-h-0 px-0 pb-2 pt-10">
+          <div className="empty-state__icon"><CloudDownload /></div>
+          <h3>No sync activity yet</h3>
+          <p>Run a contact sync to see real-time processing and result counters here.</p>
+        </div>
+      )}
+      {job ? <div className="activity-list"><ActivityItem icon={CheckCircle2} title={`Job ${statusLabel(job.status)}`} meta={job.completedAt ? formatDate(job.completedAt) : 'Running now'} /><ActivityItem icon={Database} title={`${job.processed.toLocaleString()} records processed`} meta={`${job.createdCount} created · ${job.updatedCount} updated · ${job.failedCount} failed`} /></div> : null}
+    </section>
+  )
+}
+
+function ProgressStat({ label, value }: { label: string; value: number }) {
+  return <div><div className="progress-stat__label">{label}</div><div className="progress-stat__value">{value.toLocaleString()}</div></div>
+}
+
+function ActivityItem({ icon: Icon, title, meta }: { icon: LucideIcon; title: string; meta: string }) {
+  return <div className="activity-item"><div className="activity-item__icon"><Icon /></div><div><div className="activity-item__title">{title}</div><div className="activity-item__meta">{meta}</div></div></div>
+}
+
+function WorkspacePanel({ connection, onConnect, onContacts, onConnection, onStatus }: { connection: HubspotStatus | null; onConnect: () => void; onContacts: () => void; onConnection: () => void; onStatus: () => void }) {
+  return (
+    <section className="surface-card panel">
+      <div className="panel-heading">
+        <div><div className="panel-heading__eyebrow">Workspace shortcuts</div><h3>What do you want to do?</h3><p>Jump directly into the next useful action.</p></div>
+        <div className="panel-heading__icon"><Command /></div>
+      </div>
+      <div className="mt-5 grid gap-2.5">
+        <QuickAction icon={Users} title="Inspect contacts" description="Search records and add notes" onClick={onContacts} />
+        <QuickAction icon={Link2} title={connection?.connected ? 'Review connection' : 'Connect HubSpot'} description={connection?.connected ? 'Check portal and sync state' : 'Authorize your CRM workspace'} onClick={connection?.connected ? onConnection : onConnect} />
+        <QuickAction icon={HelpCircle} title="Need a health check?" description="Open API diagnostics" onClick={onStatus} />
+      </div>
+    </section>
+  )
+}
+
+function QuickAction({ icon: Icon, title, description, onClick }: { icon: LucideIcon; title: string; description: string; onClick: () => void }) {
+  return <button className="group flex items-center gap-3 rounded-xl border border-transparent p-3 text-left transition hover:border-indigo-100 hover:bg-indigo-50/60" onClick={onClick}><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-indigo-600 transition group-hover:bg-white"><Icon className="size-4" /></span><span className="min-w-0"><span className="block text-xs font-extrabold text-slate-700">{title}</span><span className="mt-1 block truncate text-[11px] text-slate-400">{description}</span></span><ArrowUpRight className="ml-auto size-4 text-slate-300 transition group-hover:text-indigo-500" /></button>
+}
+
+function ContactsView({
+  contacts,
+  loading,
+  error,
+  page,
+  pagination,
+  searchInput,
+  selectedContact,
+  notes,
+  notesLoading,
+  notesError,
+  noteBody,
+  noteSubmitting,
+  noteMessage,
+  selectedProperties,
+  onSearchChange,
+  onPageChange,
+  onRefresh,
+  onSelectContact,
+  onCloseDetails,
+  onNoteBodyChange,
+  onCreateNote,
+}: {
+  contacts: Contact[]
+  loading: boolean
+  error: string | null
+  page: number
+  pagination: ContactsResponse['pagination']
+  searchInput: string
+  selectedContact: Contact | null
+  notes: Note[]
+  notesLoading: boolean
+  notesError: string | null
+  noteBody: string
+  noteSubmitting: boolean
+  noteMessage: string | null
+  selectedProperties: [string, unknown][]
+  onSearchChange: (value: string) => void
+  onPageChange: (page: number) => void
+  onRefresh: () => void
+  onSelectContact: (contact: Contact) => void
+  onCloseDetails: () => void
+  onNoteBodyChange: (value: string) => void
+  onCreateNote: (event: FormEvent<HTMLFormElement>) => void
 }) {
   return (
-    <div className="space-y-6">
-      <section className="rounded-3xl bg-slate-950 p-6 text-white shadow-xl shadow-slate-200 sm:p-8">
-        <div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
-          <div className="max-w-2xl">
-            <p className="text-sm font-semibold text-indigo-300">HubSpot CRM control center</p>
-            <h3 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Keep contacts and notes in sync.</h3>
-            <p className="mt-4 max-w-xl text-sm leading-6 text-slate-300">Use the real backend state to connect HubSpot, queue contact synchronization, inspect progress, and manage local notes.</p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            {!connection?.connected ? <button onClick={onConnect} className="inline-flex items-center rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-slate-950 hover:bg-indigo-50"><ExternalLink className="mr-2 size-4" />Connect HubSpot</button> : null}
-            <button onClick={onSync} disabled={syncLoading || !connection?.connected} className="inline-flex items-center rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"><CloudDownload className="mr-2 size-4" />{syncLoading ? 'Syncing…' : 'Sync contacts'}</button>
+    <div>
+      <PageHeader
+        eyebrow="CRM records"
+        title="Contacts"
+        description="Search, inspect, and annotate the contacts synchronized from your HubSpot portal."
+        action={<Button icon={RefreshCw} variant="secondary" onClick={onRefresh}>Refresh records</Button>}
+      />
+
+      <div className="surface-card table-card">
+        <div className="table-toolbar">
+          <div className="search-field"><Search /><input value={searchInput} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search by name or email…" aria-label="Search contacts" /></div>
+          <div className="table-count"><strong>{pagination.total.toLocaleString()}</strong> contacts in workspace</div>
+        </div>
+        {error ? <div className="p-4"><AlertBanner type="error" text={error} onClose={() => undefined} /></div> : null}
+        {loading ? <ContactsSkeleton /> : contacts.length === 0 ? <EmptyState icon={Users} title="No contacts found" message={error ?? (searchInput ? 'Try a different search term.' : 'Connect HubSpot and run a contact synchronization to populate this list.')} /> : <ContactsTable contacts={contacts} onSelect={onSelectContact} />}
+        {!loading && contacts.length > 0 ? <Pagination page={page} pagination={pagination} onPageChange={onPageChange} /> : null}
+      </div>
+
+      {selectedContact ? <ContactDrawer contact={selectedContact} notes={notes} notesLoading={notesLoading} notesError={notesError} noteBody={noteBody} noteSubmitting={noteSubmitting} noteMessage={noteMessage} selectedProperties={selectedProperties} onClose={onCloseDetails} onNoteBodyChange={onNoteBodyChange} onCreateNote={onCreateNote} /> : null}
+    </div>
+  )
+}
+
+function ContactsTable({ contacts, onSelect }: { contacts: Contact[]; onSelect: (contact: Contact) => void }) {
+  return (
+    <div className="table-scroll">
+      <table className="contacts-table">
+        <thead><tr><th>Contact</th><th>Email</th><th>HubSpot record</th><th>Updated</th><th aria-label="Open contact" /></tr></thead>
+        <tbody>
+          {contacts.map((contact, index) => (
+            <tr key={contact.id} onClick={() => onSelect(contact)}>
+              <td><div className="contact-cell"><div className={`avatar ${index % 3 === 1 ? 'bg-amber-100 text-amber-700' : index % 3 === 2 ? 'bg-emerald-100 text-emerald-700' : ''}`}>{initials(displayName(contact))}</div><div><div className="contact-cell__name">{displayName(contact)}</div><div className="contact-cell__meta">Contact record</div></div></div></td>
+              <td>{contact.email ?? <span className="text-slate-300">No email</span>}</td>
+              <td><span className="table-link">{contact.hubspotContactId}<ArrowUpRight /></span></td>
+              <td>{formatDate(contact.updatedAt)}</td>
+              <td><ArrowUpRight className="size-4 text-slate-300" /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function ContactsSkeleton() {
+  return <div className="space-y-3 p-5">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="skeleton h-12" />)}</div>
+}
+
+function EmptyState({ icon: Icon, title, message, action }: { icon: LucideIcon; title: string; message: string; action?: ReactNode }) {
+  return <div className="empty-state"><div className="empty-state__icon"><Icon /></div><h3>{title}</h3><p>{message}</p>{action ? <div className="mt-5">{action}</div> : null}</div>
+}
+
+function Pagination({ page, pagination, onPageChange }: { page: number; pagination: ContactsResponse['pagination']; onPageChange: (page: number) => void }) {
+  return <div className="pagination"><span className="pagination__label">Page {page} of {Math.max(pagination.totalPages, 1)}</span><div className="pagination__actions"><button className="icon-button" disabled={page <= 1} onClick={() => onPageChange(page - 1)} aria-label="Previous page"><ChevronLeft /></button><button className="icon-button" disabled={page >= pagination.totalPages} onClick={() => onPageChange(page + 1)} aria-label="Next page"><ChevronRight /></button></div></div>
+}
+
+function ContactDrawer({
+  contact,
+  notes,
+  notesLoading,
+  notesError,
+  noteBody,
+  noteSubmitting,
+  noteMessage,
+  selectedProperties,
+  onClose,
+  onNoteBodyChange,
+  onCreateNote,
+}: {
+  contact: Contact
+  notes: Note[]
+  notesLoading: boolean
+  notesError: string | null
+  noteBody: string
+  noteSubmitting: boolean
+  noteMessage: string | null
+  selectedProperties: [string, unknown][]
+  onClose: () => void
+  onNoteBodyChange: (value: string) => void
+  onCreateNote: (event: FormEvent<HTMLFormElement>) => void
+}) {
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <section className="drawer" onClick={(event) => event.stopPropagation()}>
+        <div className="drawer__header">
+          <div><div className="drawer__eyebrow">Contact detail</div><h2>{displayName(contact)}</h2><div className="drawer__email">{contact.email ?? 'No email available'}</div></div>
+          <button className="icon-button" onClick={onClose} aria-label="Close contact details"><X /></button>
+        </div>
+
+        <div className="drawer-section">
+          <div className="drawer-section__heading"><h3>Contact properties</h3><span className="drawer-section__count">HubSpot record</span></div>
+          <div className="properties-list">
+            {selectedProperties.length ? selectedProperties.map(([key, value]) => <div className="property-row" key={key}><span className="property-row__key">{key}</span><span className="property-row__value">{String(value)}</span></div>) : <div className="p-4 text-xs text-slate-400">No additional properties returned.</div>}
           </div>
         </div>
-      </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={ShieldCheck} label="HubSpot connection" value={connectionLoading ? 'Loading…' : connection?.connected ? 'Connected' : 'Disconnected'} detail={connection?.portalId ? `Portal ${connection.portalId}` : 'No portal connected'} tone={connection?.connected ? 'green' : 'slate'} />
-        <MetricCard icon={Users} label="Local contacts" value={contactsTotal.toLocaleString()} detail="Stored in PostgreSQL" tone="indigo" />
-        <MetricCard icon={Activity} label="Sync status" value={syncJob ? statusLabel(syncJob.status) : statusLabel(syncStart?.status ?? connection?.syncStatus)} detail={syncStart?.duplicate ? 'An existing job is already active' : syncJob?.completedAt ? formatDate(syncJob.completedAt) : connection?.lastSyncAt ? `Last sync ${formatDate(connection.lastSyncAt)}` : 'No completed sync yet'} tone="amber" />
-        <MetricCard icon={Database} label="Latest progress" value={syncJob ? `${syncJob.processed.toLocaleString()} processed` : 'Unavailable'} detail={syncJob ? `${syncJob.createdCount} created · ${syncJob.updatedCount} updated · ${syncJob.failedCount} failed` : 'Start a sync to see counters'} tone="violet" />
-      </section>
-
-      {syncError ? <AlertBanner type="error" text={syncError} onClose={() => undefined} /> : null}
-      {syncJob ? <SyncProgressCard job={syncJob} /> : null}
-
-      <section className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-6">
-          <div className="flex items-start justify-between gap-4"><div><p className="text-sm font-semibold text-slate-400">Quick actions</p><h3 className="mt-1 text-lg font-bold text-slate-950">Test the backend flow</h3></div><Activity className="size-5 text-indigo-500" /></div>
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <ActionButton icon={Users} label="Open contacts" description="Search and inspect synchronized records" onClick={onContacts} />
-            <ActionButton icon={RefreshCw} label="Queue a sync" description="Use the BullMQ background worker" onClick={onSync} disabled={!connection?.connected || syncLoading} />
-          </div>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-6">
-          <p className="text-sm font-semibold text-slate-400">What is available</p>
-          <div className="mt-4 space-y-3 text-sm text-slate-600"><FeatureRow label="OAuth token storage" available /><FeatureRow label="Contact synchronization" available /><FeatureRow label="Local notes" available /><FeatureRow label="HubSpot note write sync" available={false} /></div>
+        <div className="drawer-section">
+          <div className="drawer-section__heading"><h3>Notes</h3><span className="drawer-section__count">{notes.length} local</span></div>
+          <NoteComposer noteBody={noteBody} submitting={noteSubmitting} message={noteMessage} error={notesError} onBodyChange={onNoteBodyChange} onSubmit={onCreateNote} />
+          <div className="notes-list">{notesLoading ? <div className="skeleton h-24" /> : notes.length ? notes.map((note) => <NoteCard key={note.id} note={note} />) : <div className="rounded-xl border border-dashed border-slate-200 p-5 text-center text-xs text-slate-400">No notes yet. Add the first customer touchpoint above.</div>}</div>
         </div>
       </section>
     </div>
   )
 }
 
-function MetricCard({ icon: Icon, label, value, detail, tone }: { icon: typeof Users; label: string; value: string; detail: string; tone: 'green' | 'slate' | 'indigo' | 'amber' | 'violet' }) {
-  const colors = { green: 'bg-emerald-50 text-emerald-600', slate: 'bg-slate-100 text-slate-500', indigo: 'bg-indigo-50 text-indigo-600', amber: 'bg-amber-50 text-amber-600', violet: 'bg-violet-50 text-violet-600' }
-  return <div className="rounded-2xl border border-slate-200 bg-white p-5"><div className={`mb-5 inline-flex rounded-xl p-2.5 ${colors[tone]}`}><Icon className="size-5" /></div><p className="text-sm font-medium text-slate-500">{label}</p><p className="mt-1 truncate text-2xl font-bold tracking-tight text-slate-950">{value}</p><p className="mt-2 truncate text-xs text-slate-400">{detail}</p></div>
+function NoteComposer({ noteBody, submitting, message, error, onBodyChange, onSubmit }: { noteBody: string; submitting: boolean; message: string | null; error: string | null; onBodyChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  return (
+    <form className="note-composer" onSubmit={onSubmit}>
+      <textarea value={noteBody} onChange={(event) => onBodyChange(event.target.value)} maxLength={65536} placeholder="Write a note for this contact…" aria-label="Note body" />
+      <div className="note-composer__footer"><span className="note-composer__hint">Saved locally first, then synced to HubSpot.</span><Button icon={submitting ? Loader2 : FileText} variant="dark" size="md" disabled={submitting || !noteBody.trim()}>{submitting ? 'Saving…' : 'Save note'}</Button></div>
+      {message ? <div className="mt-2 text-[11px] font-bold text-emerald-600">{message}</div> : null}
+      {error ? <div className="mt-2 text-[11px] font-bold text-rose-600">{error}</div> : null}
+    </form>
+  )
 }
 
-function ActionButton({ icon: Icon, label, description, onClick, disabled }: { icon: typeof Users; label: string; description: string; onClick: () => void; disabled?: boolean }) {
-  return <button onClick={onClick} disabled={disabled} className="flex items-start gap-3 rounded-xl border border-slate-200 p-4 text-left transition hover:border-indigo-200 hover:bg-indigo-50/40 disabled:cursor-not-allowed disabled:opacity-50"><Icon className="mt-0.5 size-5 text-indigo-600" /><span><span className="block text-sm font-bold text-slate-900">{label}</span><span className="mt-1 block text-xs leading-5 text-slate-500">{description}</span></span></button>
+function NoteCard({ note }: { note: Note }) {
+  return <article className="note-card"><div className="note-card__top"><p className="note-card__body">{note.body}</p><StatusBadge status={note.syncStatus} /></div><div className="note-card__meta"><span>{formatDate(note.createdAt)}</span>{note.hubspotNoteId ? <span>HubSpot ID {note.hubspotNoteId}</span> : null}{note.lastSyncError ? <span className="note-card__error">{note.lastSyncError}</span> : null}</div></article>
 }
 
-function FeatureRow({ label, available }: { label: string; available: boolean }) {
-  return <div className="flex items-center justify-between gap-3"><span>{label}</span>{available ? <CheckCircle2 className="size-4 text-emerald-500" /> : <XCircle className="size-4 text-slate-300" />}</div>
+function NotesView({ contacts, selectedContact, notes, loading, error, noteBody, noteSubmitting, noteMessage, onSelectContact, onNoteBodyChange, onCreateNote, onContacts }: { contacts: Contact[]; selectedContact: Contact | null; notes: Note[]; loading: boolean; error: string | null; noteBody: string; noteSubmitting: boolean; noteMessage: string | null; onSelectContact: (contact: Contact) => void; onNoteBodyChange: (value: string) => void; onCreateNote: (event: FormEvent<HTMLFormElement>) => void; onContacts: () => void }) {
+  return (
+    <div>
+      <PageHeader eyebrow="Customer activity" title="Notes" description="Capture context once and keep it attached to the official HubSpot contact record." action={<Button icon={Users} variant="secondary" onClick={onContacts}>Choose a contact</Button>} />
+      {selectedContact ? <div className="notes-layout"><section className="surface-card selected-contact-card"><div className="selected-contact-card__avatar">{initials(displayName(selectedContact))}</div><div><h2>{displayName(selectedContact)}</h2><p>{selectedContact.email ?? 'No email available'}</p></div><div className="selected-contact-card__stat"><div className="selected-contact-card__stat-label">Notes on this contact</div><div className="selected-contact-card__stat-value">{notes.length}</div></div><Button className="mt-4 w-full" icon={ArrowLeft} variant="ghost" onClick={onContacts}>Back to contacts</Button></section><section className="surface-card panel"><div className="panel-heading"><div><div className="panel-heading__eyebrow">Contact timeline</div><h3>Add context that stays useful.</h3><p>Every note is saved locally and queued for HubSpot synchronization.</p></div><div className="panel-heading__icon"><MessageSquareText /></div></div><NoteComposer noteBody={noteBody} submitting={noteSubmitting} message={noteMessage} error={error} onBodyChange={onNoteBodyChange} onSubmit={onCreateNote} /><div className="notes-list">{loading ? <div className="skeleton h-28" /> : notes.length ? notes.map((note) => <NoteCard key={note.id} note={note} />) : <EmptyState icon={FileText} title="No notes for this contact" message="Start the timeline with a concise call summary, follow-up, or customer insight." />}</div></section></div> : <ContactPicker contacts={contacts} onSelect={onSelectContact} />}
+    </div>
+  )
 }
 
-function SyncProgressCard({ job }: { job: SyncJob }) {
-  return <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-indigo-600">Synchronization job</p><p className="mt-1 text-sm text-slate-600">Job <code className="rounded bg-white px-1.5 py-0.5 text-xs">{job.id}</code></p></div><StatusBadge status={job.status} /></div><div className="mt-5 grid gap-3 sm:grid-cols-4"><ProgressMetric label="Processed" value={job.processed} /><ProgressMetric label="Created" value={job.createdCount} /><ProgressMetric label="Updated" value={job.updatedCount} /><ProgressMetric label="Failed" value={job.failedCount} /></div>{job.error ? <p className="mt-4 text-sm font-medium text-rose-700">{job.error}</p> : null}</div>
+function ContactPicker({ contacts, onSelect }: { contacts: Contact[]; onSelect: (contact: Contact) => void }) {
+  return <section className="surface-card panel"><div className="panel-heading"><div><div className="panel-heading__eyebrow">Choose a contact</div><h3>Start from a customer record</h3><p>Select a contact to view or create notes.</p></div><div className="panel-heading__icon"><Users /></div></div>{contacts.length ? <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{contacts.slice(0, 9).map((contact) => <button key={contact.id} className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/50" onClick={() => onSelect(contact)}><div className="avatar avatar--small">{initials(displayName(contact))}</div><div className="min-w-0"><div className="truncate text-xs font-extrabold text-slate-700">{displayName(contact)}</div><div className="mt-1 truncate text-[11px] text-slate-400">{contact.email ?? 'No email'}</div></div></button>)}</div> : <EmptyState icon={Users} title="No contacts available" message="Run a HubSpot contact sync before creating notes." />}</section>
 }
 
-function ProgressMetric({ label, value }: { label: string; value: number }) { return <div className="rounded-xl bg-white/80 px-3 py-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-xl font-bold text-slate-950">{value.toLocaleString()}</p></div> }
-
-function ContactsView({ contacts, loading, error, page, pagination, searchInput, selectedContact, notes, notesLoading, notesError, noteBody, noteSubmitting, noteMessage, selectedProperties, onSearchChange, onPageChange, onRefresh, onSelectContact, onCloseDetails, onNoteBodyChange, onCreateNote }: {
-  contacts: Contact[]; loading: boolean; error: string | null; page: number; pagination: ContactsResponse['pagination']; searchInput: string; selectedContact: Contact | null; notes: Note[]; notesLoading: boolean; notesError: string | null; noteBody: string; noteSubmitting: boolean; noteMessage: string | null; selectedProperties: [string, unknown][]; onSearchChange: (value: string) => void; onPageChange: (page: number) => void; onRefresh: () => void; onSelectContact: (contact: Contact) => void; onCloseDetails: () => void; onNoteBodyChange: (value: string) => void; onCreateNote: (event: FormEvent<HTMLFormElement>) => void
-}) {
-  return <div className="space-y-6"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="text-sm font-semibold text-indigo-600">CRM records</p><h3 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">Contacts</h3><p className="mt-2 text-sm text-slate-500">Search and inspect the contacts persisted by the backend.</p></div><button onClick={onRefresh} className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"><RefreshCw className="mr-2 size-4" />Refresh</button></div><div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row"><div className="relative flex-1"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input value={searchInput} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search by name or email…" className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-50" /></div><span className="flex items-center justify-center rounded-xl bg-slate-100 px-4 text-sm font-semibold text-slate-600">{pagination.total.toLocaleString()} total</span></div>{error ? <AlertBanner type="error" text={error} onClose={() => undefined} /> : null}{loading ? <ContactsSkeleton /> : contacts.length === 0 ? <EmptyState icon={Users} title="No contacts found" message={error ?? (searchInput ? 'Try a different search term.' : 'Connect HubSpot and run a contact synchronization to populate this list.')} /> : <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-3 font-semibold">Contact</th><th className="px-5 py-3 font-semibold">Email</th><th className="px-5 py-3 font-semibold">HubSpot ID</th><th className="px-5 py-3 font-semibold">Updated</th><th className="px-5 py-3" /></tr></thead><tbody className="divide-y divide-slate-100">{contacts.map((contact) => <tr key={contact.id} className="transition hover:bg-indigo-50/30"><td className="px-5 py-4"><button onClick={() => onSelectContact(contact)} className="flex items-center gap-3 text-left"><span className="flex size-9 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700">{(contact.firstName?.[0] ?? contact.email?.[0] ?? '?').toUpperCase()}</span><span><span className="block font-semibold text-slate-900">{displayName(contact)}</span><span className="block text-xs text-slate-400">{contact.firstName || contact.lastName ? 'Contact record' : 'Email-only record'}</span></span></button></td><td className="px-5 py-4 text-slate-600">{contact.email ?? '—'}</td><td className="px-5 py-4 font-mono text-xs text-slate-500">{contact.hubspotContactId}</td><td className="px-5 py-4 text-slate-500">{formatDate(contact.updatedAt)}</td><td className="px-5 py-4 text-right"><button onClick={() => onSelectContact(contact)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-indigo-600" aria-label={`Open ${displayName(contact)}`}><ChevronRight className="size-4" /></button></td></tr>)}</tbody></table></div><Pagination page={page} pagination={pagination} onPageChange={onPageChange} /></div>}{selectedContact ? <ContactDrawer contact={selectedContact} notes={notes} notesLoading={notesLoading} notesError={notesError} noteBody={noteBody} noteSubmitting={noteSubmitting} noteMessage={noteMessage} selectedProperties={selectedProperties} onClose={onCloseDetails} onNoteBodyChange={onNoteBodyChange} onCreateNote={onCreateNote} /> : null}</div>
+function ConnectionView({ connection, loading, onConnect, onRefresh }: { connection: HubspotStatus | null; loading: boolean; onConnect: () => void; onRefresh: () => void }) {
+  const connected = Boolean(connection?.connected)
+  return (
+    <div>
+      <PageHeader eyebrow="Integration" title="HubSpot connection" description="Keep your OAuth connection visible, secure, and ready for contact and note synchronization." action={<Button icon={RefreshCw} variant="secondary" onClick={onRefresh}>Refresh status</Button>} />
+      <section className="surface-card connection-card"><div className="connection-card__identity"><div className={`connection-card__icon ${connected ? '' : 'connection-card__icon--off'}`}><ShieldCheck /></div><div><StatusBadge status={loading ? 'RUNNING' : connected ? 'COMPLETED' : 'FAILED'} /><h2>{loading ? 'Checking connection…' : connected ? 'HubSpot is connected' : 'Connect your HubSpot portal'}</h2><p>{connected ? `Portal ${connection?.portalId ?? '—'} is authorized for this workspace.` : 'Authorize HubSync to begin importing contacts and syncing notes.'}</p></div></div><div className="connection-card__actions">{!connected ? <Button icon={ExternalLink} variant="primary" onClick={onConnect}>Connect HubSpot</Button> : <Button icon={Check} variant="secondary" disabled>Authorized</Button>}</div></section>
+      <div className="info-grid"><InfoCard label="Portal" value={connection?.portalId ?? 'Not connected'} detail="HubSpot account identifier" /><InfoCard label="Sync state" value={statusLabel(connection?.syncStatus)} detail={connection?.lastSyncAt ? `Last sync ${formatDate(connection.lastSyncAt)}` : 'No completed contact sync yet'} /><InfoCard label="Data flow" value="Contacts + notes" detail="Notes are associated with the official contact record" /></div>
+      <section className="surface-card panel mt-5"><div className="panel-heading"><div><div className="panel-heading__eyebrow">How the connection works</div><h3>Secure by default</h3><p>OAuth tokens stay on the backend and are never returned to the browser.</p></div><div className="panel-heading__icon"><ShieldCheck /></div></div><div className="mt-5 grid gap-3 md:grid-cols-3"><FeatureRow icon={KeyIcon} label="Encrypted tokens" detail="Stored securely by the backend" available /><FeatureRow icon={Users} label="Contact sync" detail="Pulls records from HubSpot" available /><FeatureRow icon={MessageSquareText} label="Official notes" detail="Associates notes to contacts" available /></div></section>
+    </div>
+  )
 }
 
-function ContactsSkeleton() { return <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5">{Array.from({ length: 6 }).map((_, index) => <LoadingBlock key={index} className="h-12" />)}</div> }
+function KeyIcon(props: SVGProps<SVGSVGElement>) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}><circle cx="7.5" cy="15.5" r="5.5" /><path d="m21 2-9.6 9.6M15 5l4 4M18 2l4 4" /></svg>
+}
 
-function Pagination({ page, pagination, onPageChange }: { page: number; pagination: ContactsResponse['pagination']; onPageChange: (page: number) => void }) { return <div className="flex items-center justify-between border-t border-slate-100 px-5 py-4"><p className="text-xs text-slate-500">Page {page} of {Math.max(pagination.totalPages, 1)}</p><div className="flex gap-2"><button disabled={page <= 1} onClick={() => onPageChange(page - 1)} className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Previous page"><ChevronLeft className="size-4" /></button><button disabled={page >= pagination.totalPages} onClick={() => onPageChange(page + 1)} className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Next page"><ChevronRight className="size-4" /></button></div></div> }
+function InfoCard({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return <div className="surface-card info-card"><div className="info-card__label">{label}</div><div className="info-card__value">{value}</div><div className="info-card__detail">{detail}</div></div>
+}
 
-function ContactDrawer({ contact, notes, notesLoading, notesError, noteBody, noteSubmitting, noteMessage, selectedProperties, onClose, onNoteBodyChange, onCreateNote }: { contact: Contact; notes: Note[]; notesLoading: boolean; notesError: string | null; noteBody: string; noteSubmitting: boolean; noteMessage: string | null; selectedProperties: [string, unknown][]; onClose: () => void; onNoteBodyChange: (value: string) => void; onCreateNote: (event: FormEvent<HTMLFormElement>) => void }) { return <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/30" onClick={onClose}><section className="h-full w-full max-w-xl overflow-y-auto bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-600">Contact detail</p><h3 className="mt-2 text-2xl font-bold text-slate-950">{displayName(contact)}</h3><p className="mt-1 text-sm text-slate-500">{contact.email ?? 'No email available'}</p></div><button onClick={onClose} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100" aria-label="Close contact details"><X className="size-5" /></button></div><div className="mt-8 space-y-6"><div><h4 className="text-sm font-bold text-slate-900">Contact properties</h4><div className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200">{selectedProperties.length ? selectedProperties.map(([key, value]) => <div key={key} className="flex justify-between gap-4 px-4 py-3 text-sm"><span className="text-slate-500">{key}</span><span className="max-w-[60%] break-words text-right font-medium text-slate-800">{String(value)}</span></div>) : <p className="px-4 py-4 text-sm text-slate-500">No additional properties returned.</p>}</div></div><div><div className="flex items-center justify-between"><h4 className="text-sm font-bold text-slate-900">Notes</h4><span className="text-xs text-slate-400">{notes.length} local</span></div><NoteComposer noteBody={noteBody} submitting={noteSubmitting} message={noteMessage} error={notesError} onBodyChange={onNoteBodyChange} onSubmit={onCreateNote} />{notesLoading ? <div className="mt-4 space-y-2"><LoadingBlock className="h-16" /><LoadingBlock className="h-16" /></div> : notes.length ? <div className="mt-4 space-y-3">{notes.map((note) => <NoteCard key={note.id} note={note} />)}</div> : <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No notes saved for this contact.</p>}</div></div></section></div> }
+function FeatureRow({ icon: Icon, label, detail, available }: { icon: LucideIcon | typeof KeyIcon; label: string; detail: string; available: boolean }) {
+  return <div className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/80 p-3"><div className={`grid size-8 shrink-0 place-items-center rounded-lg ${available ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-400'}`}>{available ? <Icon className="size-4" /> : <XCircle className="size-4" />}</div><div><div className="text-xs font-extrabold text-slate-700">{label}</div><div className="mt-1 text-[11px] leading-4 text-slate-400">{detail}</div></div></div>
+}
 
-function NoteComposer({ noteBody, submitting, message, error, onBodyChange, onSubmit }: { noteBody: string; submitting: boolean; message: string | null; error: string | null; onBodyChange: (value: string) => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { return <form onSubmit={onSubmit} className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3"><textarea value={noteBody} onChange={(event) => onBodyChange(event.target.value)} maxLength={65536} placeholder="Write a local note…" className="min-h-24 w-full resize-y rounded-lg border border-slate-200 bg-white p-3 text-sm outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50" /><div className="mt-2 flex items-center justify-between gap-3"><p className="text-xs text-slate-400">Saved locally before any sync attempt.</p><button disabled={submitting || !noteBody.trim()} className="inline-flex items-center rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">{submitting ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <FileText className="mr-1.5 size-3.5" />}Save note</button></div>{message ? <p className="mt-2 text-xs font-medium text-emerald-700">{message}</p> : null}{error ? <p className="mt-2 text-xs font-medium text-rose-700">{error}</p> : null}</form> }
+function StatusView({ health, connection, onRefresh }: { health: { message: string } | null; connection: HubspotStatus | null; onRefresh: () => void }) {
+  return <div><PageHeader eyebrow="Diagnostics" title="API status" description="A quick, honest view of the services powering this workspace." action={<Button icon={RefreshCw} variant="secondary" onClick={onRefresh}>Run checks</Button>} /><div className="status-grid"><StatusPanel icon={HeartPulse} label="Backend health" ok={Boolean(health)} value={health?.message ?? 'Backend unavailable'} /><StatusPanel icon={Server} label="HubSpot connection" ok={Boolean(connection?.connected)} value={connection?.connected ? `Connected to portal ${connection.portalId ?? '—'}` : 'Disconnected'} /><StatusPanel icon={Activity} label="Synchronization" ok={Boolean(connection?.syncStatus && ['IDLE', 'COMPLETED'].includes(connection.syncStatus))} value={connection?.syncStatus ? statusLabel(connection.syncStatus) : 'Unavailable'} /><StatusPanel icon={Database} label="API base URL" ok value={getApiBaseUrl()} /></div><section className="surface-card panel mt-5"><div className="panel-heading"><div><div className="panel-heading__eyebrow">Operational notes</div><h3>Know what the status means.</h3><p>These checks reflect the actual backend response, not simulated UI state.</p></div><div className="panel-heading__icon"><Activity /></div></div><div className="mt-5 grid gap-3 md:grid-cols-3"><InfoCard label="Healthy" value="Ready" detail="The API responds to health checks." /><InfoCard label="Syncing" value="In progress" detail="A background worker is processing records." /><InfoCard label="Action needed" value="Reconnect" detail="OAuth authorization must be restored." /></div></section></div>
+}
 
-function NoteCard({ note }: { note: Note }) { return <article className="rounded-xl border border-slate-200 p-4"><div className="flex items-start justify-between gap-3"><p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{note.body}</p><StatusBadge status={note.syncStatus} /></div><div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-400"><span>{formatDate(note.createdAt)}</span>{note.lastSyncError ? <span className="text-rose-600">{note.lastSyncError}</span> : null}</div></article> }
-
-function NotesView({ contacts, selectedContact, notes, loading, error, noteBody, noteSubmitting, noteMessage, onSelectContact, onNoteBodyChange, onCreateNote, onContacts }: { contacts: Contact[]; selectedContact: Contact | null; notes: Note[]; loading: boolean; error: string | null; noteBody: string; noteSubmitting: boolean; noteMessage: string | null; onSelectContact: (contact: Contact) => void; onNoteBodyChange: (value: string) => void; onCreateNote: (event: FormEvent<HTMLFormElement>) => void; onContacts: () => void }) { return <div className="space-y-6"><div><p className="text-sm font-semibold text-indigo-600">Local activity</p><h3 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">Notes</h3><p className="mt-2 text-sm text-slate-500">Notes are stored locally first. HubSpot note write sync is only shown when the backend confirms it is enabled.</p></div>{selectedContact ? <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]"><div className="rounded-2xl border border-slate-200 bg-white p-5"><button onClick={onContacts} className="mb-5 inline-flex items-center text-xs font-semibold text-indigo-600 hover:text-indigo-700"><ArrowLeft className="mr-1 size-3.5" />Back to contacts</button><p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Selected contact</p><h4 className="mt-2 text-lg font-bold text-slate-950">{displayName(selectedContact)}</h4><p className="mt-1 text-sm text-slate-500">{selectedContact.email ?? 'No email available'}</p><div className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">{notes.length} local note{notes.length === 1 ? '' : 's'} available.</div></div><div className="rounded-2xl border border-slate-200 bg-white p-5"><NoteComposer noteBody={noteBody} submitting={noteSubmitting} message={noteMessage} error={error} onBodyChange={onNoteBodyChange} onSubmit={onCreateNote} /><div className="mt-5 space-y-3">{loading ? <LoadingBlock className="h-20" /> : notes.length ? notes.map((note) => <NoteCard key={note.id} note={note} />) : <EmptyState icon={MessageSquareText} title="No notes yet" message="Create the first local note for this contact." />}</div></div></div> : <div className="space-y-4"><div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-5 text-sm text-indigo-800">Select a contact below to view or create its notes.</div>{contacts.length ? <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{contacts.map((contact) => <button key={contact.id} onClick={() => onSelectContact(contact)} className="rounded-2xl border border-slate-200 bg-white p-4 text-left hover:border-indigo-200 hover:bg-indigo-50/30"><p className="font-semibold text-slate-900">{displayName(contact)}</p><p className="mt-1 text-xs text-slate-500">{contact.email ?? 'No email available'}</p></button>)}</div> : <EmptyState icon={Users} title="No contacts available" message="Open Contacts after connecting HubSpot and synchronizing records." />}</div>}</div> }
-
-function ConnectionView({ connection, loading, onConnect, onRefresh }: { connection: HubspotStatus | null; loading: boolean; onConnect: () => void; onRefresh: () => void }) { return <div className="space-y-6"><div><p className="text-sm font-semibold text-indigo-600">OAuth integration</p><h3 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">HubSpot connection</h3><p className="mt-2 text-sm text-slate-500">OAuth and token storage stay on the backend. The browser only reads safe connection status.</p></div><div className="rounded-2xl border border-slate-200 bg-white p-6">{loading ? <LoadingBlock className="h-32" /> : <div className="flex flex-col justify-between gap-6 sm:flex-row sm:items-center"><div className="flex items-start gap-4"><div className={`rounded-2xl p-3 ${connection?.connected ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}><ShieldCheck className="size-7" /></div><div><StatusBadge status={connection?.connected ? 'COMPLETED' : 'FAILED'} /><h4 className="mt-3 text-lg font-bold text-slate-950">{connection?.connected ? 'HubSpot is connected' : 'No HubSpot account connected'}</h4><p className="mt-1 text-sm text-slate-500">{connection?.portalId ? `Portal ID: ${connection.portalId}` : 'Connect a test account to begin synchronization.'}</p>{connection?.lastSyncAt ? <p className="mt-2 text-xs text-slate-400">Last sync: {formatDate(connection.lastSyncAt)}</p> : null}</div></div><div className="flex gap-3"><button onClick={onRefresh} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Refresh</button>{!connection?.connected ? <button onClick={onConnect} className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-700">Connect HubSpot</button> : null}</div></div>}</div></div> }
-
-function StatusView({ health, connection, onRefresh }: { health: { message: string } | null; connection: HubspotStatus | null; onRefresh: () => void }) { return <div className="space-y-6"><div className="flex items-end justify-between gap-4"><div><p className="text-sm font-semibold text-indigo-600">Diagnostics</p><h3 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">API status</h3><p className="mt-2 text-sm text-slate-500">Safe runtime checks for the local development environment.</p></div><button onClick={onRefresh} className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"><RefreshCw className="mr-2 size-4" />Refresh</button></div><div className="grid gap-4 md:grid-cols-2"><StatusPanel icon={HeartPulse} label="Backend health" ok={Boolean(health)} value={health?.message ?? 'Backend unavailable'} /><StatusPanel icon={Server} label="HubSpot connection" ok={Boolean(connection?.connected)} value={connection?.connected ? `Connected to portal ${connection.portalId ?? '—'}` : 'Disconnected'} /><StatusPanel icon={Activity} label="Synchronization" ok={Boolean(connection?.syncStatus && ['IDLE', 'COMPLETED'].includes(connection.syncStatus))} value={connection?.syncStatus ? statusLabel(connection.syncStatus) : 'Unavailable'} /><StatusPanel icon={Database} label="API base URL" ok value={getApiBaseUrl()} /></div></div> }
-
-function StatusPanel({ icon: Icon, label, ok, value }: { icon: typeof Users; label: string; ok: boolean; value: string }) { return <div className="rounded-2xl border border-slate-200 bg-white p-5"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-sm font-semibold text-slate-700"><Icon className="size-4 text-indigo-500" />{label}</div><span className={`size-2.5 rounded-full ${ok ? 'bg-emerald-500' : 'bg-rose-500'}`} /></div><p className="mt-4 break-words text-sm text-slate-500">{value}</p></div> }
+function StatusPanel({ icon: Icon, label, ok, value }: { icon: LucideIcon; label: string; ok: boolean; value: string }) {
+  return <div className="surface-card status-panel"><div className="status-panel__top"><div className="status-panel__label"><Icon />{label}</div><span className={`status-dot ${ok ? 'status-dot--online' : ''}`} /></div><div className="status-panel__value">{value}</div></div>
+}
 
 export default App

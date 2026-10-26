@@ -133,7 +133,11 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
         ...init.headers,
       },
     })
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw error
+    }
+
     throw new ApiError(0, {
       code: 'NETWORK_ERROR',
       message: 'Unable to reach the backend. Check that the API is running on port 4000.',

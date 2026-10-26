@@ -141,3 +141,55 @@ test("createHubSpotNote does not retry an ambiguous network failure", async () =
     globalThis.fetch = originalFetch;
   }
 });
+
+test("createHubSpotNote creates and associates a note with the HubSpot contact", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestUrl = "";
+  let requestBody: unknown;
+
+  globalThis.fetch = async (input, init) => {
+    requestUrl = String(input);
+    requestBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ id: "hubspot-note-123" }), {
+      status: 201,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const noteId = await createHubSpotNote(
+      "https://api.hubapi.com",
+      "test-access-token",
+      "contact-123",
+      "A local note",
+      new Date("2026-01-01T00:00:00.000Z"),
+    );
+    const body = requestBody as {
+      properties: { hs_timestamp: string; hs_note_body: string };
+      associations: Array<{
+        to: { id: string };
+        types: Array<{ associationCategory: string; associationTypeId: number }>;
+      }>;
+    };
+
+    assert.equal(noteId, "hubspot-note-123");
+    assert.equal(requestUrl, "https://api.hubapi.com/crm/v3/objects/notes");
+    assert.deepEqual(body.properties, {
+      hs_timestamp: "2026-01-01T00:00:00.000Z",
+      hs_note_body: "A local note",
+    });
+    assert.deepEqual(body.associations, [
+      {
+        to: { id: "contact-123" },
+        types: [
+          {
+            associationCategory: "HUBSPOT_DEFINED",
+            associationTypeId: 202,
+          },
+        ],
+      },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
