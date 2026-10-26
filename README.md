@@ -4,6 +4,10 @@ HubSync is a local HubSpot workspace. It connects to HubSpot with OAuth, keeps
 contacts in PostgreSQL, and provides a React dashboard for contacts, notes, and
 sync status.
 
+> **Deployment:** The frontend is deployed at
+> `https://hubsync-fe.vercel.app/`. The backend is not deployed, so run the API,
+> Redis, and worker locally before using the frontend.
+
 Long-running work runs in a separate BullMQ worker. The API creates a durable
 job and returns immediately; the worker fetches HubSpot data and saves progress.
 
@@ -81,7 +85,11 @@ credentials in frontend variables.
 | `SYNC_WORKER_CONCURRENCY` | worker | Worker concurrency, max 10 |
 | `VITE_API_BASE_URL` | frontend | Browser API base URL |
 
-## Run locally
+## Run the backend locally
+
+The deployed frontend uses the backend on your computer. Start the services in
+this order and keep each process running in its own terminal. The sync button
+will stay queued until the worker is running.
 
 Install dependencies:
 
@@ -101,7 +109,10 @@ npx prisma generate
 npx prisma migrate deploy
 ```
 
-Start Redis. With Docker:
+### 1. Start Redis
+
+Redis is required by the API for queueing and by the worker for processing jobs.
+With Docker:
 
 ```powershell
 docker start hubsync-redis
@@ -109,28 +120,48 @@ docker start hubsync-redis
 docker run --name hubsync-redis -p 6379:6379 -d redis:7-alpine
 ```
 
-Run the API, worker, and frontend in separate terminals:
+If the container already exists, use `docker start hubsync-redis`. Check that it
+is running with `docker ps`.
+
+### 2. Start the backend API
+
+Open **Terminal 1**:
 
 ```powershell
-# API
 Set-Location D:\hubsync\backend
-npm run dev
-
-# Worker
-Set-Location D:\hubsync\backend
-npm run worker
-
-# Frontend
-Set-Location D:\hubsync\frontend
 npm run dev
 ```
 
-Open <https://hubsync-fe.vercel.app/>. The API is available at
-<http://localhost:4000>.
+The API must be available at `http://localhost:4000`. Check it with:
 
-The frontend development script can also start missing local API/frontend
-processes automatically. Redis and the worker still need to be available for
-queued synchronization.
+```powershell
+Invoke-RestMethod http://localhost:4000/api/health
+```
+
+### 3. Start the worker
+
+Open **Terminal 2** and leave it running:
+
+```powershell
+Set-Location D:\hubsync\backend
+npm run worker
+```
+
+The worker processes contact sync and queued note jobs. If the worker is not
+running, the API can accept a sync job but it will remain in `QUEUED`.
+
+### 4. Open the frontend
+
+Open the deployed dashboard at:
+
+<https://hubsync-fe.vercel.app/>
+
+The frontend uses `VITE_API_BASE_URL=http://localhost:4000` for local backend
+development. The backend must use
+`FRONTEND_URL=https://hubsync-fe.vercel.app/` so requests from Vercel pass CORS.
+
+Running the frontend locally with `npm run dev` is optional. Redis and the worker
+are still required for queued synchronization.
 
 ## API overview
 
