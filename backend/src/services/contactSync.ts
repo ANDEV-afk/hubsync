@@ -1,4 +1,6 @@
 import prisma from "../lib/prisma.js";
+import { Prisma } from "../generated/prisma/client.js";
+import { randomUUID } from "node:crypto";
 import { AppError } from "../lib/errors.js";
 import { getHubSpotApiConfig } from "../lib/config.js";
 import {
@@ -34,6 +36,125 @@ interface SyncCounters {
   created: number;
   updated: number;
   failed: number;
+}
+
+interface ContactPagePersistenceResult {
+  created: number;
+  updated: number;
+  failed: number;
+}
+
+async function persistContactPage(
+  connectionId: string,
+  page: HubSpotContactsPage,
+): Promise<ContactPagePersistenceResult> {
+  if (page.results.length === 0) {
+    return { created: 0, updated: 0, failed: 0 };
+  }
+
+  const contactIds = page.results.map((contact) => contact.id);
+  const existingContacts = await prisma.contact.findMany({
+    where: {
+      connectionId,
+      hubspotContactId: { in: contactIds },
+    },
+    select: { hubspotContactId: true },
+  });
+  const existingIds = new Set(
+    existingContacts.map((contact) => contact.hubspotContactId),
+  );
+
+  const values = page.results.map((contact) => {
+    const properties = contact.properties;
+    return Prisma.sql`(
+      ${randomUUID()},
+      ${connectionId},
+      ${contact.id},
+      ${properties.email ?? null},
+      ${properties.firstname ?? null},
+      ${properties.lastname ?? null},
+      ${JSON.stringify(properties)}::jsonb,
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP
+    )`;
+  });
+
+  try {
+    await prisma.$executeRaw(Prisma.sql`
+      INSERT INTO "Contact" (
+        "id",
+        "connectionId",
+        "hubspotContactId",
+        "email",
+        "firstName",
+        "lastName",
+        "properties",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES ${Prisma.join(values)}
+      ON CONFLICT ("connectionId", "hubspotContactId") DO UPDATE SET
+        "email" = EXCLUDED."email",
+        "firstName" = EXCLUDED."firstName",
+        "lastName" = EXCLUDED."lastName",
+        "properties" = EXCLUDED."properties",
+        "updatedAt" = CURRENT_TIMESTAMP
+    `);
+
+    return {
+      created: page.results.length - existingIds.size,
+      updated: existingIds.size,
+      failed: 0,
+    };
+  } catch {
+    let created = 0;
+    let updated = 0;
+    let failed = 0;
+
+    for (const contact of page.results) {
+      try {
+        const uniqueWhere = {
+          connectionId_hubspotContactId: {
+            connectionId,
+            hubspotContactId: contact.id,
+          },
+        };
+        const existing = await prisma.contact.findUnique({
+          where: uniqueWhere,
+          select: { id: true },
+        });
+        const properties = contact.properties;
+
+        await prisma.contact.upsert({
+          where: uniqueWhere,
+          create: {
+            connectionId,
+            hubspotContactId: contact.id,
+            email: properties.email ?? null,
+            firstName: properties.firstname ?? null,
+            lastName: properties.lastname ?? null,
+            properties,
+          },
+          update: {
+            email: properties.email ?? null,
+            firstName: properties.firstname ?? null,
+            lastName: properties.lastname ?? null,
+            properties,
+          },
+        });
+
+        if (existing) {
+          updated += 1;
+        } else {
+          created += 1;
+        }
+      } catch {
+        failed += 1;
+      }
+    }
+
+    return { created, updated, failed };
+  }
 }
 
 function summary(
@@ -147,50 +268,12 @@ export async function processContactSyncJob(
         );
       }
 
-      let pageFailed = 0;
-      for (const contact of page.results) {
-        try {
-          const uniqueWhere = {
-            connectionId_hubspotContactId: {
-              connectionId,
-              hubspotContactId: contact.id,
-            },
-          };
-          const existing = await prisma.contact.findUnique({
-            where: uniqueWhere,
-            select: { id: true },
-          });
-          const properties = contact.properties;
-
-          await prisma.contact.upsert({
-            where: uniqueWhere,
-            create: {
-              connectionId,
-              hubspotContactId: contact.id,
-              email: properties.email ?? null,
-              firstName: properties.firstname ?? null,
-              lastName: properties.lastname ?? null,
-              properties,
-            },
-            update: {
-              email: properties.email ?? null,
-              firstName: properties.firstname ?? null,
-              lastName: properties.lastname ?? null,
-              properties,
-            },
-          });
-
-          counters.processed += 1;
-          if (existing) {
-            counters.updated += 1;
-          } else {
-            counters.created += 1;
-          }
-        } catch {
-          pageFailed += 1;
-          counters.failed += 1;
-        }
-      }
+      const pageResult = await persistContactPage(connectionId, page);
+      const pageFailed = pageResult.failed;
+      counters.processed += page.results.length - pageFailed;
+      counters.created += pageResult.created;
+      counters.updated += pageResult.updated;
+      counters.failed += pageFailed;
 
       const nextCursor = page.paging?.next?.after ?? null;
       cursor = pageFailed > 0 ? pageCursor : nextCursor;

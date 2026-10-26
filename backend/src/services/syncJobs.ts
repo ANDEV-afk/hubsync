@@ -62,13 +62,96 @@ async function waitForQueue(): Promise<Queue<SyncJobData>> {
   }
 }
 
+async function ensureQueued(
+  syncJobId: string,
+  connectionId: string,
+  noteId?: string,
+): Promise<void> {
+  const queue = await waitForQueue();
+  const existingQueueJob = await queue.getJob(syncJobId);
+  if (existingQueueJob) {
+    return;
+  }
+
+  await queue.add(
+    CONTACT_SYNC_JOB_NAME,
+    noteId ? { syncJobId, connectionId, noteId } : { syncJobId, connectionId },
+    { jobId: syncJobId },
+  );
+}
+
+async function markContactQueueFailure(
+  syncJobId: string,
+  connectionId: string,
+): Promise<void> {
+  await prisma.$transaction([
+    prisma.syncJob.update({
+      where: { id: syncJobId },
+      data: {
+        status: "FAILED",
+        error: "Unable to enqueue synchronization job",
+        completedAt: new Date(),
+        dedupeKey: null,
+      },
+    }),
+    prisma.hubSpotConnection.update({
+      where: { id: connectionId },
+      data: { syncStatus: "FAILED" },
+    }),
+  ]);
+}
+
+function deferContactQueue(syncJobId: string, connectionId: string): void {
+  void ensureQueued(syncJobId, connectionId).catch(() =>
+    markContactQueueFailure(syncJobId, connectionId).catch(() => undefined),
+  );
+}
+
+async function markNoteQueueFailure(
+  syncJobId: string,
+  noteId: string,
+): Promise<void> {
+  await prisma.$transaction([
+    prisma.syncJob.update({
+      where: { id: syncJobId },
+      data: {
+        status: "FAILED",
+        error: "Unable to enqueue note synchronization job",
+        completedAt: new Date(),
+        dedupeKey: null,
+      },
+    }),
+    prisma.note.update({
+      where: { id: noteId },
+      data: {
+        syncStatus: "PENDING",
+        lastSyncError: "Synchronization queue is unavailable; note remains local and pending.",
+      },
+    }),
+  ]);
+}
+
+function deferNoteQueue(
+  syncJobId: string,
+  noteId: string,
+  connectionId: string,
+): void {
+  void ensureQueued(syncJobId, connectionId, noteId).catch(() =>
+    markNoteQueueFailure(syncJobId, noteId).catch(() => undefined),
+  );
+}
+
 export function getContactSyncQueue(): Queue<SyncJobData> {
   return ensureQueue();
 }
 
-export async function enqueueContactSync(connectionId: string) {
+export async function enqueueContactSync(
+  connectionId: string,
+  options: { deferQueue?: boolean } = {},
+) {
   const activeStatuses = ["QUEUED", "RUNNING"] as const;
   const dedupeKey = `contacts:${connectionId}`;
+  const deferQueue = options.deferQueue === true;
   const existing = await prisma.syncJob.findFirst({
     where: {
       connectionId,
@@ -80,14 +163,10 @@ export async function enqueueContactSync(connectionId: string) {
   });
 
   if (existing) {
-    const queue = await waitForQueue();
-    const existingQueueJob = await queue.getJob(existing.id);
-    if (!existingQueueJob) {
-      await queue.add(
-        CONTACT_SYNC_JOB_NAME,
-        { syncJobId: existing.id, connectionId },
-        { jobId: existing.id },
-      );
+    if (deferQueue) {
+      deferContactQueue(existing.id, connectionId);
+    } else {
+      await ensureQueued(existing.id, connectionId);
     }
 
     return { ...existing, duplicate: true };
@@ -132,28 +211,13 @@ export async function enqueueContactSync(connectionId: string) {
   }
 
   try {
-    const queue = await waitForQueue();
-    await queue.add(
-      CONTACT_SYNC_JOB_NAME,
-      { syncJobId: syncJob.id, connectionId },
-      { jobId: syncJob.id },
-    );
+    if (deferQueue) {
+      deferContactQueue(syncJob.id, connectionId);
+    } else {
+      await ensureQueued(syncJob.id, connectionId);
+    }
   } catch (error) {
-    await prisma.$transaction([
-      prisma.syncJob.update({
-        where: { id: syncJob.id },
-        data: {
-          status: "FAILED",
-          error: "Unable to enqueue synchronization job",
-          completedAt: new Date(),
-          dedupeKey: null,
-        },
-      }),
-      prisma.hubSpotConnection.update({
-        where: { id: connectionId },
-        data: { syncStatus: "FAILED" },
-      }),
-    ]);
+    await markContactQueueFailure(syncJob.id, connectionId);
 
     throw new AppError(503, "Synchronization queue is unavailable", "QUEUE_UNAVAILABLE");
   }
@@ -161,22 +225,23 @@ export async function enqueueContactSync(connectionId: string) {
   return { ...syncJob, duplicate: false };
 }
 
-export async function enqueueNoteSync(noteId: string, connectionId: string) {
+export async function enqueueNoteSync(
+  noteId: string,
+  connectionId: string,
+  options: { deferQueue?: boolean } = {},
+) {
   const dedupeKey = `notes:${noteId}`;
+  const deferQueue = options.deferQueue === true;
   const existing = await prisma.syncJob.findUnique({
     where: { dedupeKey },
     select: { id: true, status: true },
   });
 
   if (existing && (existing.status === "QUEUED" || existing.status === "RUNNING")) {
-    const queue = await waitForQueue();
-    const existingQueueJob = await queue.getJob(existing.id);
-    if (!existingQueueJob) {
-      await queue.add(
-        CONTACT_SYNC_JOB_NAME,
-        { syncJobId: existing.id, connectionId, noteId },
-        { jobId: existing.id },
-      );
+    if (deferQueue) {
+      deferNoteQueue(existing.id, noteId, connectionId);
+    } else {
+      await ensureQueued(existing.id, connectionId, noteId);
     }
 
     return { ...existing, duplicate: true };
@@ -207,22 +272,13 @@ export async function enqueueNoteSync(noteId: string, connectionId: string) {
   }
 
   try {
-    const queue = await waitForQueue();
-    await queue.add(
-      CONTACT_SYNC_JOB_NAME,
-      { syncJobId: syncJob.id, connectionId, noteId },
-      { jobId: syncJob.id },
-    );
+    if (deferQueue) {
+      deferNoteQueue(syncJob.id, noteId, connectionId);
+    } else {
+      await ensureQueued(syncJob.id, connectionId, noteId);
+    }
   } catch {
-    await prisma.syncJob.update({
-      where: { id: syncJob.id },
-      data: {
-        status: "FAILED",
-        error: "Unable to enqueue note synchronization job",
-        completedAt: new Date(),
-        dedupeKey: null,
-      },
-    });
+    await markNoteQueueFailure(syncJob.id, noteId);
 
     throw new AppError(503, "Synchronization queue is unavailable", "QUEUE_UNAVAILABLE");
   }

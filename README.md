@@ -349,8 +349,8 @@ the normal development entry point. The intended browser URL is
 
 If port `5173` is already occupied by another frontend, stop that process or
 run the API and frontend in separate terminals with a matching `FRONTEND_URL`
-and CORS configuration. Vite may otherwise choose another port while the
-backend is still configured to allow only the configured frontend origin.
+and CORS configuration. Vite may otherwise choose another port that is not
+allowed by the backend.
 
 ### 7. Verify the local stack
 
@@ -397,7 +397,8 @@ backend health and connection status reflect the actual API responses.
 - Reuse the existing frontend if it is the HubSync Vite app.
 - Otherwise stop the conflicting process before using the orchestrated frontend
   command, or make the frontend port and backend `FRONTEND_URL` agree.
-- CORS is intentionally limited to the configured `FRONTEND_URL`.
+- CORS is intentionally limited to the configured `FRONTEND_URL`; local
+  `localhost`, `127.0.0.1`, and `::1` aliases are accepted on the same port.
 
 ### Missing environment variables
 
@@ -454,7 +455,8 @@ as an `AUTH_REQUIRED` connection state and requires reconnection.
 ### CORS errors in the browser
 
 Confirm that the browser origin, `FRONTEND_URL`, and the Vite port agree. The
-default pairing is `http://localhost:5173` and `http://localhost:4000`.
+default pairing is `http://localhost:5173` and `http://localhost:4000`; the
+same Vite port is also accepted through `127.0.0.1` and `::1` locally.
 
 ## API reference
 
@@ -603,7 +605,7 @@ node --check scripts/dev.mjs
 ```
 
 There is no separate frontend test-runner script. The backend test command
-currently discovers 12 tests covering encryption, OAuth state, HubSpot request
+currently discovers 14 tests covering encryption, OAuth state, CORS, HubSpot request
 and pagination behavior, note API payloads, note validation, and selected note
 route/service behavior.
 
@@ -612,7 +614,7 @@ The latest completed implementation verification reported:
 - Prisma client generation and schema validation passed.
 - Database migration status reported four migrations and an up-to-date schema.
 - Backend build passed.
-- Backend tests passed: 12 of 12.
+- Backend tests passed: 14 of 14.
 - Frontend production build and lint passed.
 - Development script syntax validation passed.
 - HubSpot metadata JSON validation passed.

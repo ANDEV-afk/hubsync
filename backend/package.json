@@ -8,7 +8,7 @@
     "worker": "tsx src/worker.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "node --import tsx --test-concurrency=1 --test src/lib/crypto.test.ts src/lib/oauthState.test.ts src/lib/hubspotApi.test.ts src/services/notes.test.ts"
+    "test": "node --import tsx --test-concurrency=1 --test src/lib/crypto.test.ts src/lib/oauthState.test.ts src/lib/cors.test.ts src/lib/hubspotApi.test.ts src/services/notes.test.ts"
   },
   "keywords": [],
   "author": "",

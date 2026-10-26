@@ -3,10 +3,8 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowUpRight,
-  Bell,
   Check,
   CheckCircle2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleDot,
@@ -22,7 +20,6 @@ import {
   Loader2,
   Menu,
   MessageSquareText,
-  MoreHorizontal,
   RefreshCw,
   Search,
   Server,
@@ -56,7 +53,8 @@ import type {
 type View = 'overview' | 'contacts' | 'notes' | 'connection' | 'status'
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'dark'
 
-const POLL_INTERVAL_MS = 1200
+const INITIAL_POLL_INTERVAL_MS = 900
+const MAX_POLL_INTERVAL_MS = 3500
 
 function delay(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -158,7 +156,7 @@ function Button({
   className?: string
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
-    <button className={`btn btn--${variant} btn--${size} ${className}`} {...props}>
+    <button type="button" className={`btn btn--${variant} btn--${size} ${className}`} {...props}>
       {Icon ? <Icon /> : null}
       {children}
     </button>
@@ -246,7 +244,7 @@ function App() {
   const syncRunningRef = useRef(false)
   const noteControllerRef = useRef<AbortController | null>(null)
 
-  const loadConnection = useCallback(async (signal?: AbortSignal) => {
+  const loadConnection = useCallback(async (signal?: AbortSignal, reportError = true) => {
     setConnectionLoading(true)
     try {
       const result = await apiFetch<HubspotStatus>('/api/hubspot/status', { signal })
@@ -254,7 +252,7 @@ function App() {
       setConnectionError(null)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
-      setConnectionError(errorMessage(error))
+      if (reportError) setConnectionError(errorMessage(error))
     } finally {
       if (!signal?.aborted) setConnectionLoading(false)
     }
@@ -269,7 +267,7 @@ function App() {
     }
   }, [])
 
-  const loadContacts = useCallback(async (targetPage: number, targetSearch: string, signal?: AbortSignal) => {
+  const loadContacts = useCallback(async (targetPage: number, targetSearch: string, signal?: AbortSignal, reportError = true) => {
     setContactsLoading(true)
     try {
       const params = new URLSearchParams({ page: String(targetPage), limit: '25' })
@@ -281,11 +279,12 @@ function App() {
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       if (error instanceof ApiError && error.code === 'HUBSPOT_NOT_CONNECTED') {
+        if (!reportError) return
         setContacts([])
         setContactsPagination({ page: 1, limit: 25, total: 0, totalPages: 0 })
         setContactsError('Connect HubSpot to load synchronized contacts.')
       } else {
-        setContactsError(errorMessage(error))
+        if (reportError) setContactsError(errorMessage(error))
       }
     } finally {
       if (!signal?.aborted) setContactsLoading(false)
@@ -368,11 +367,14 @@ function App() {
   }
 
   const pollJob = async (jobId: string, controller: AbortController): Promise<SyncJob> => {
+    let pollInterval = INITIAL_POLL_INTERVAL_MS
+
     while (true) {
-      await delay(POLL_INTERVAL_MS, controller.signal)
+      await delay(pollInterval, controller.signal)
       const current = await apiFetch<SyncJob>(`/api/sync/jobs/${jobId}`, { signal: controller.signal })
       setSyncJob(current)
       if (isTerminalSyncStatus(current.status)) return current
+      pollInterval = Math.min(pollInterval + 500, MAX_POLL_INTERVAL_MS)
     }
   }
 
@@ -393,17 +395,27 @@ function App() {
         signal: controller.signal,
       })
       setSyncStart(queued)
+      setConnectionError(null)
+      setContactsError(null)
+      setHealth({ message: 'HubSync API is running' })
       const finished = isTerminalSyncStatus(queued.status) ? null : await pollJob(queued.jobId, controller)
 
       if (finished?.status === 'COMPLETED') {
         setBanner({ type: 'success', text: 'Contact synchronization completed successfully.' })
+        setConnectionError(null)
+        setContactsError(null)
+        setHealth({ message: 'HubSync API is running' })
       } else if (finished?.status === 'PARTIAL') {
         setBanner({ type: 'error', text: 'Synchronization completed with partial failures.' })
       } else if (finished?.status === 'FAILED' || finished?.status === 'AUTH_REQUIRED') {
         setBanner({ type: 'error', text: finished.error ?? 'Contact synchronization failed.' })
       }
 
-      await Promise.all([loadConnection(controller.signal), loadContacts(page, search, controller.signal)])
+      await Promise.allSettled([
+        loadConnection(controller.signal, false),
+        loadHealth(controller.signal),
+        loadContacts(page, search, controller.signal, false),
+      ])
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       setSyncError(errorMessage(error))
@@ -473,7 +485,6 @@ function App() {
             <div className="workspace-switcher__label">Workspace</div>
             <div className="workspace-switcher__name">HubSync operations</div>
           </div>
-          <ChevronDown className="size-4 text-slate-500" />
         </div>
 
         <nav>
@@ -519,8 +530,6 @@ function App() {
               </div>
             </div>
             <div className="topbar__actions">
-              <div className="search-pill"><Search /><span>Quick search</span><span className="search-pill__shortcut"><Command className="mr-0.5 inline size-3" /> K</span></div>
-              <button className="icon-button" aria-label="Notifications"><Bell /></button>
               {connection?.connected ? <StatusBadge status={connection.syncStatus ?? 'IDLE'} /> : <StatusBadge status="FAILED" />}
               <Button icon={CloudDownload} variant="primary" onClick={() => void startContactSync()} disabled={syncLoading || !connection?.connected}>{syncButtonLabel}</Button>
             </div>
@@ -548,6 +557,7 @@ function App() {
               onContacts={() => navigate('contacts')}
               onConnection={() => navigate('connection')}
               onStatus={() => navigate('status')}
+              onDismissSyncError={() => setSyncError(null)}
             />
           ) : null}
 
@@ -570,6 +580,7 @@ function App() {
               onSearchChange={setSearchInput}
               onPageChange={setPage}
               onRefresh={() => void loadContacts(page, search)}
+              onDismissError={() => setContactsError(null)}
               onSelectContact={openContact}
               onCloseDetails={() => setSelectedContact(null)}
               onNoteBodyChange={setNoteBody}
@@ -634,6 +645,7 @@ function OverviewView({
   onContacts,
   onConnection,
   onStatus,
+  onDismissSyncError,
 }: {
   connection: HubspotStatus | null
   connectionLoading: boolean
@@ -648,6 +660,7 @@ function OverviewView({
   onContacts: () => void
   onConnection: () => void
   onStatus: () => void
+  onDismissSyncError: () => void
 }) {
   const currentStatus = syncJob?.status ?? syncStart?.status ?? connection?.syncStatus
 
@@ -688,7 +701,7 @@ function OverviewView({
         <MetricCard icon={HeartPulse} label="Backend health" value={health ? 'Operational' : 'Unavailable'} detail={health?.message ?? 'Check the API status page'} tone={health ? 'blue' : 'amber'} />
       </section>
 
-      {syncError ? <div className="mt-5"><AlertBanner type="error" text={syncError} onClose={() => undefined} /></div> : null}
+      {syncError ? <div className="mt-5"><AlertBanner type="error" text={syncError} onClose={onDismissSyncError} /></div> : null}
 
       <section className="overview-grid">
         <SyncActivityPanel job={syncJob} start={syncStart} loading={syncLoading} />
@@ -709,7 +722,6 @@ function MetricCard({ icon: Icon, label, value, detail, tone }: { icon: LucideIc
     <div className="surface-card metric-card">
       <div className="metric-card__top">
         <span className={`metric-card__icon metric-card__icon--${tone}`}><Icon /></span>
-        <MoreHorizontal className="size-4 text-slate-300" />
       </div>
       <div className="metric-card__value">{value}</div>
       <div className="metric-card__label">{label}</div>
@@ -809,6 +821,7 @@ function ContactsView({
   onSearchChange,
   onPageChange,
   onRefresh,
+  onDismissError,
   onSelectContact,
   onCloseDetails,
   onNoteBodyChange,
@@ -831,6 +844,7 @@ function ContactsView({
   onSearchChange: (value: string) => void
   onPageChange: (page: number) => void
   onRefresh: () => void
+  onDismissError: () => void
   onSelectContact: (contact: Contact) => void
   onCloseDetails: () => void
   onNoteBodyChange: (value: string) => void
@@ -850,7 +864,7 @@ function ContactsView({
           <div className="search-field"><Search /><input value={searchInput} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search by name or email…" aria-label="Search contacts" /></div>
           <div className="table-count"><strong>{pagination.total.toLocaleString()}</strong> contacts in workspace</div>
         </div>
-        {error ? <div className="p-4"><AlertBanner type="error" text={error} onClose={() => undefined} /></div> : null}
+        {error ? <div className="p-4"><AlertBanner type="error" text={error} onClose={onDismissError} /></div> : null}
         {loading ? <ContactsSkeleton /> : contacts.length === 0 ? <EmptyState icon={Users} title="No contacts found" message={error ?? (searchInput ? 'Try a different search term.' : 'Connect HubSpot and run a contact synchronization to populate this list.')} /> : <ContactsTable contacts={contacts} onSelect={onSelectContact} />}
         {!loading && contacts.length > 0 ? <Pagination page={page} pagination={pagination} onPageChange={onPageChange} /> : null}
       </div>
@@ -867,12 +881,24 @@ function ContactsTable({ contacts, onSelect }: { contacts: Contact[]; onSelect: 
         <thead><tr><th>Contact</th><th>Email</th><th>HubSpot record</th><th>Updated</th><th aria-label="Open contact" /></tr></thead>
         <tbody>
           {contacts.map((contact, index) => (
-            <tr key={contact.id} onClick={() => onSelect(contact)}>
+            <tr
+              key={contact.id}
+              tabIndex={0}
+              role="button"
+              aria-label={`Open ${displayName(contact)}`}
+              onClick={() => onSelect(contact)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  onSelect(contact)
+                }
+              }}
+            >
               <td><div className="contact-cell"><div className={`avatar ${index % 3 === 1 ? 'bg-amber-100 text-amber-700' : index % 3 === 2 ? 'bg-emerald-100 text-emerald-700' : ''}`}>{initials(displayName(contact))}</div><div><div className="contact-cell__name">{displayName(contact)}</div><div className="contact-cell__meta">Contact record</div></div></div></td>
               <td>{contact.email ?? <span className="text-slate-300">No email</span>}</td>
-              <td><span className="table-link">{contact.hubspotContactId}<ArrowUpRight /></span></td>
+              <td><span className="table-link">{contact.hubspotContactId}</span></td>
               <td>{formatDate(contact.updatedAt)}</td>
-              <td><ArrowUpRight className="size-4 text-slate-300" /></td>
+              <td><ChevronRight className="size-4 text-slate-300" /></td>
             </tr>
           ))}
         </tbody>
@@ -947,7 +973,7 @@ function NoteComposer({ noteBody, submitting, message, error, onBodyChange, onSu
   return (
     <form className="note-composer" onSubmit={onSubmit}>
       <textarea value={noteBody} onChange={(event) => onBodyChange(event.target.value)} maxLength={65536} placeholder="Write a note for this contact…" aria-label="Note body" />
-      <div className="note-composer__footer"><span className="note-composer__hint">Saved locally first, then synced to HubSpot.</span><Button icon={submitting ? Loader2 : FileText} variant="dark" size="md" disabled={submitting || !noteBody.trim()}>{submitting ? 'Saving…' : 'Save note'}</Button></div>
+      <div className="note-composer__footer"><span className="note-composer__hint">Saved locally first, then synced to HubSpot.</span><Button type="submit" icon={submitting ? Loader2 : FileText} variant="dark" size="md" disabled={submitting || !noteBody.trim()}>{submitting ? 'Saving…' : 'Save note'}</Button></div>
       {message ? <div className="mt-2 text-[11px] font-bold text-emerald-600">{message}</div> : null}
       {error ? <div className="mt-2 text-[11px] font-bold text-rose-600">{error}</div> : null}
     </form>

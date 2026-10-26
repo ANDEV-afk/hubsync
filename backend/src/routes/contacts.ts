@@ -51,7 +51,7 @@ function parseSearch(value: unknown): string | undefined {
 router.post("/sync/contacts", async (_request, response, next) => {
   try {
     const connection = await requireSingleHubSpotConnection();
-    const job = await enqueueContactSync(connection.id);
+    const job = await enqueueContactSync(connection.id, { deferQueue: true });
 
     response.status(202).json({
       success: true,

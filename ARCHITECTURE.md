@@ -440,9 +440,11 @@ defaulting to `http://localhost:4000`. `apiFetch` centralizes JSON parsing,
 classification. Abort errors are allowed to propagate so component cleanup is
 not displayed as a backend outage.
 
-The backend uses `FRONTEND_URL` as its single CORS origin. The default browser
-origin is `http://localhost:5173`; a different Vite port requires matching
-backend configuration.
+The backend uses `FRONTEND_URL` as its CORS origin. For local development, the
+configured frontend port is also accepted on `localhost`, `127.0.0.1`, and
+`::1`, so switching between equivalent loopback URLs does not look like a
+backend outage. Non-local deployments remain restricted to the configured
+origin.
 
 The React application:
 
@@ -586,7 +588,8 @@ multiple API instances without a shared state/lock service.
   payloads.
 - OAuth state is random, single-use, and expires after ten minutes.
 - The callback validates the path and requires HTTPS outside localhost.
-- CORS is restricted to the configured `FRONTEND_URL`, not an open wildcard.
+- CORS is restricted to the configured `FRONTEND_URL`; local loopback aliases
+  are accepted for development, not an open wildcard.
 - JSON request bodies are limited to 100 KB.
 - Note, contact, search, page, limit, and job ID inputs are validated.
 - OAuth code exchange and refresh happen only in backend modules.

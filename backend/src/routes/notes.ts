@@ -44,7 +44,7 @@ router.post("/contacts/:contactId/notes", async (request, response, next) => {
     }
 
     try {
-      const job = await enqueueNoteSync(note.id, connection.id);
+      const job = await enqueueNoteSync(note.id, connection.id, { deferQueue: true });
       response.status(201).json({
         success: true,
         data: {
