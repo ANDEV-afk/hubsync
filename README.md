@@ -5,8 +5,8 @@ contacts in PostgreSQL, and provides a React dashboard for contacts, notes, and
 sync status.
 
 > **Deployment:** The frontend is deployed at
-> `https://hubsync-fe.vercel.app/`. The backend is not deployed, so run the API,
-> Redis, and worker locally before using the frontend.
+> `https://hubsync-fe.vercel.app/`. The backend API and Redis are deployed on
+> Render. The worker runs locally.
 
 Long-running work runs in a separate BullMQ worker. The API creates a durable
 job and returns immediately; the worker fetches HubSpot data and saves progress.
@@ -34,7 +34,7 @@ user accounts, sessions, or multi-tenant authorization.
 
 - Node.js 20+ and npm
 - PostgreSQL or Neon
-- Redis
+- A Render backend service and Render Redis service
 - A HubSpot private app with the scopes in
   `hubsync-intern/src/app/app-hsmeta.json`
 - PowerShell or Windows Terminal for the commands below
@@ -48,16 +48,17 @@ Copy-Item .\backend\.env.example .\backend\.env
 Copy-Item .\frontend\.env.example .\frontend\.env
 ```
 
-Set the real database, Redis, HubSpot, and encryption values in
-`backend/.env`. The usual local values are:
+The backend API and Redis use their Render environment variables. The local
+worker must use the same `DATABASE_URL` and `REDIS_URL` values so it can read
+jobs from Render Redis and write progress to the database.
 
 ```env
 # backend/.env
-HUBSPOT_REDIRECT_URI=http://localhost:4000/auth/hubspot/callback
+HUBSPOT_REDIRECT_URI=https://hubsync-be.onrender.com/auth/hubspot/callback
 FRONTEND_URL=https://hubsync-fe.vercel.app/
 
 # frontend/.env
-VITE_API_BASE_URL=http://localhost:4000
+VITE_API_BASE_URL=https://hubsync-be.onrender.com
 ```
 
 Generate an encryption key with:
@@ -84,11 +85,11 @@ credentials in frontend variables.
 | `SYNC_WORKER_CONCURRENCY` | worker | Worker concurrency, max 10 |
 | `VITE_API_BASE_URL` | frontend | Browser API base URL |
 
-## Run the backend locally
+## Run the local worker
 
-The deployed frontend uses the backend on your computer. Start the services in
-this order and keep each process running in its own terminal. The sync button
-will stay queued until the worker is running.
+The backend API and Redis are already deployed on Render. Do not start another
+local API or Redis instance for the deployed frontend. Run only the worker
+locally and keep it running while using the app.
 
 Install dependencies:
 
@@ -108,59 +109,34 @@ npx prisma generate
 npx prisma migrate deploy
 ```
 
-### 1. Start Redis
+### 1. Start the worker
 
-Redis is required by the API for queueing and by the worker for processing jobs.
-With Docker:
-
-```powershell
-docker start hubsync-redis
-# First time only:
-docker run --name hubsync-redis -p 6379:6379 -d redis:7-alpine
-```
-
-If the container already exists, use `docker start hubsync-redis`. Check that it
-is running with `docker ps`.
-
-### 2. Start the backend API
-
-Open **Terminal 1**:
-
-```powershell
-Set-Location D:\hubsync\backend
-npm run dev
-```
-
-The API must be available at `http://localhost:4000`. Check it with:
-
-```powershell
-Invoke-RestMethod http://localhost:4000/api/health
-```
-
-### 3. Start the worker
-
-Open **Terminal 2** and leave it running:
+Open a terminal in `backend/` and leave this process running:
 
 ```powershell
 Set-Location D:\hubsync\backend
 npm run worker
 ```
 
-The worker processes contact sync and queued note jobs. If the worker is not
-running, the API can accept a sync job but it will remain in `QUEUED`.
+The worker processes contact sync and queued note jobs from Render Redis. If it
+is not running, the Render API can accept a sync job but it will remain in
+`QUEUED`.
 
-### 4. Open the frontend
+### 2. Open the frontend
 
 Open the deployed dashboard at:
 
 <https://hubsync-fe.vercel.app/>
 
-The frontend uses `VITE_API_BASE_URL=http://localhost:4000` for local backend
-development. The backend must use
-`FRONTEND_URL=https://hubsync-fe.vercel.app/` so requests from Vercel pass CORS.
+The Vercel frontend uses `VITE_API_BASE_URL=https://hubsync-be.onrender.com`.
+The Render backend uses `FRONTEND_URL=https://hubsync-fe.vercel.app/` so
+requests from Vercel pass CORS.
 
-Running the frontend locally with `npm run dev` is optional. Redis and the worker
-are still required for queued synchronization.
+Check the deployed API with:
+
+```powershell
+Invoke-RestMethod https://hubsync-be.onrender.com/api/health
+```
 
 ## API overview
 
@@ -217,22 +193,24 @@ node --check scripts/dev.mjs
 
 ## Troubleshooting
 
-- **API unavailable:** check `http://localhost:4000/api/health` and confirm
-  `VITE_API_BASE_URL` points to the API.
+- **API unavailable:** check `https://hubsync-be.onrender.com/api/health` and confirm
+  `VITE_API_BASE_URL` points to the Render backend.
 - **Sync stuck in `QUEUED`:** start the worker and confirm it uses the same
   `DATABASE_URL` and `REDIS_URL` as the API.
-- **Queue errors:** start Redis and check `REDIS_URL`.
-- **OAuth redirect error:** use exactly
-  `http://localhost:4000/auth/hubspot/callback` locally and register the same
-  URL in the HubSpot app.
+- **Queue errors:** check the Render Redis service and confirm the local worker
+  uses the same `REDIS_URL` as the Render backend.
+- **OAuth redirect error:** use
+  `https://hubsync-be.onrender.com/auth/hubspot/callback` in
+  `HUBSPOT_REDIRECT_URI` and the HubSpot app settings.
 - **CORS error:** use the configured frontend port. Local `localhost`,
   `127.0.0.1`, and `::1` aliases are accepted on that port.
 
 Do not use `prisma migrate reset` against a populated database.
 
-## Production note
+## Deployment note
 
-Production requires separate API and worker processes, managed PostgreSQL and
-Redis, HTTPS OAuth callbacks, a fixed frontend origin, and a protected token
-encryption key. Authentication and per-user connection ownership still need to
-be added before treating this as a multi-tenant production service.
+The current setup uses Vercel for the frontend, Render for the backend API and
+Redis, and a locally running worker. The worker must use the same database and
+Render Redis configuration as the deployed services. Authentication and
+per-user connection ownership still need to be added before treating this as a
+multi-tenant production service.
