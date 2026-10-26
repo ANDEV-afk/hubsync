@@ -9,7 +9,7 @@ BullMQ deliver work to the worker; they are not the public job-status store.
 ```mermaid
 flowchart LR
     Browser[React + Vite]
-    API[Express API :4000]
+    API[Express API :https://hubsync-backend.onrender.com]
     DB[(PostgreSQL)]
     Redis[(Redis)]
     Queue[BullMQ queue]
@@ -149,7 +149,7 @@ writes reduce the impact.
 ## API and frontend
 
 The frontend uses `VITE_API_BASE_URL`, defaulting to
-`http://localhost:4000`. Its API helper handles JSON parsing, API errors, and
+`https://hubsync-backend.onrender.com`. Its API helper handles JSON parsing, API errors, and
 network errors. Abort errors from replaced requests are ignored.
 
 The API uses `FRONTEND_URL` for CORS. On local development, the same port is
@@ -203,7 +203,7 @@ npm run dev
 Useful checks:
 
 ```powershell
-Invoke-RestMethod http://localhost:4000/api/health
+Invoke-RestMethod https://hubsync-backend.onrender.com/api/health
 npx prisma validate
 npx prisma migrate status
 npm run build

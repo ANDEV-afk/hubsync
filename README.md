@@ -53,7 +53,6 @@ Set the real database, Redis, HubSpot, and encryption values in
 
 ```env
 # backend/.env
-PORT=4000
 HUBSPOT_REDIRECT_URI=http://localhost:4000/auth/hubspot/callback
 FRONTEND_URL=https://hubsync-fe.vercel.app/
 
