@@ -411,10 +411,12 @@ function App() {
         setBanner({ type: 'error', text: finished.error ?? 'Contact synchronization failed.' })
       }
 
-      await Promise.allSettled([
+      if (finished?.status === 'COMPLETED' || finished?.status === 'PARTIAL') {
+        await loadContacts(page, search, controller.signal, false)
+      }
+      void Promise.allSettled([
         loadConnection(controller.signal, false),
         loadHealth(controller.signal),
-        loadContacts(page, search, controller.signal, false),
       ])
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
@@ -444,7 +446,12 @@ function App() {
         const controller = new AbortController()
         noteControllerRef.current = controller
         void pollJob(result.sync.jobId, controller)
-          .then(() => loadNotes(selectedContact.id, controller.signal))
+          .then((finished) => {
+            if (finished.status === 'COMPLETED' || finished.status === 'PARTIAL' || finished.status === 'FAILED') {
+              return loadNotes(selectedContact.id, controller.signal)
+            }
+            return undefined
+          })
           .catch((error: unknown) => {
             if (!(error instanceof DOMException && error.name === 'AbortError')) setNotesError(errorMessage(error))
           })

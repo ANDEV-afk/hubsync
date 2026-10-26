@@ -101,7 +101,10 @@ router.get("/contacts", async (request, response, next) => {
     const [contacts, total] = await prisma.$transaction([
       prisma.contact.findMany({
         where,
-        orderBy: { updatedAt: "desc" },
+        orderBy: [
+          { createdAt: "desc" },
+          { id: "desc" },
+        ],
         skip: (page - 1) * limit,
         take: limit,
         select: {

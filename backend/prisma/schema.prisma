@@ -70,6 +70,7 @@ model Contact {
   // for the same connection.
   @@unique([connectionId, hubspotContactId])
   @@index([connectionId, email])
+  @@index([connectionId, createdAt])
 }
 
 model Note {
