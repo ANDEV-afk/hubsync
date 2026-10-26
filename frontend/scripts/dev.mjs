@@ -39,7 +39,7 @@ async function isFrontendRunning() {
   const timeout = setTimeout(() => controller.abort(), 750)
 
   try {
-    const response = await fetch('http://localhost:5173/', { signal: controller.signal })
+    const response = await fetch('https://hubsync-fe.vercel.app//', { signal: controller.signal })
     if (!response.ok) return false
     const html = await response.text()
     return html.includes('<div id="root"></div>')
@@ -58,7 +58,7 @@ if (await isBackendRunning()) {
 }
 
 if (await isFrontendRunning()) {
-  console.log('HubSync frontend already running on http://localhost:5173.')
+  console.log('HubSync frontend already running on https://hubsync-fe.vercel.app/.')
 } else {
   children.push(startNpm(['run', 'dev:frontend'], frontendDir))
 }

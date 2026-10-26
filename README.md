@@ -51,7 +51,7 @@ Set the real database, Redis, HubSpot, and encryption values in
 # backend/.env
 PORT=4000
 HUBSPOT_REDIRECT_URI=http://localhost:4000/auth/hubspot/callback
-FRONTEND_URL=http://localhost:5173
+FRONTEND_URL=https://hubsync-fe.vercel.app/
 
 # frontend/.env
 VITE_API_BASE_URL=http://localhost:4000
@@ -125,7 +125,7 @@ Set-Location D:\hubsync\frontend
 npm run dev
 ```
 
-Open <http://localhost:5173>. The API is available at
+Open <https://hubsync-fe.vercel.app/>. The API is available at
 <http://localhost:4000>.
 
 The frontend development script can also start missing local API/frontend

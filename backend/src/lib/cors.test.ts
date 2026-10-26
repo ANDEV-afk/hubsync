@@ -3,12 +3,12 @@ import test from "node:test";
 import { getAllowedCorsOrigins } from "./cors.js";
 
 test("local frontend origins are interchangeable for development CORS", () => {
-  const origins = getAllowedCorsOrigins("http://localhost:5173");
+  const origins = getAllowedCorsOrigins("https://hubsync-fe.vercel.app/");
 
-  assert.equal(origins.has("http://localhost:5173"), true);
-  assert.equal(origins.has("http://127.0.0.1:5173"), true);
-  assert.equal(origins.has("http://[::1]:5173"), true);
-  assert.equal(origins.has("http://localhost:5174"), false);
+  assert.equal(origins.has("https://hubsync-fe.vercel.app/"), true);
+  assert.equal(origins.has("https://hubsync-fe.vercel.app/"), true);
+  assert.equal(origins.has("https://hubsync-fe.vercel.app/"), true);
+  assert.equal(origins.has("https://hubsync-fe.vercel.app/"), false);
 });
 
 test("non-local frontend configuration remains restricted to its origin", () => {
