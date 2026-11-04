@@ -10,14 +10,17 @@
       "redirectUrls": [
         "https://hubsync-be.onrender.com/auth/hubspot/callback",
         "http://localhost:4000/auth/hubspot/callback",
-        "https://landing-placard-tiptoeing.ngrok-free.dev/auth/hubspot/callback"
+        "https://landing-placard-tiptoeing.ngrok-free.dev/auth/hubspot/callback",
+        "https://landing-placard-tiptoeing.ngrok-free.dev/v1/integrations/hubspot/oauth/callback"
       ],
       "requiredScopes": [
         "oauth",
         "crm.objects.contacts.read",
         "crm.objects.contacts.write"
       ],
-      "optionalScopes": [],
+      "optionalScopes": [
+        "crm.objects.owners.read"
+      ],
       "conditionallyRequiredScopes": []
     },
     "permittedUrls": {
