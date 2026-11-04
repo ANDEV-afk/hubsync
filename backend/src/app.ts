@@ -4,7 +4,7 @@ import hubspotRoutes from "./routes/hubspot.js";
 import contactRoutes from "./routes/contacts.js";
 import noteRoutes from "./routes/notes.js";
 import { errorHandler } from "./middleware/errorHandler.js";
-import { getAllowedCorsOrigins } from "./lib/cors.js";
+import { getAllowedCorsOrigins, isAllowedCorsOrigin } from "./lib/cors.js";
 
 const app = express();
 
@@ -12,7 +12,7 @@ const allowedCorsOrigins = getAllowedCorsOrigins(process.env.FRONTEND_URL);
 app.use(
   cors({
     origin: (origin, callback) => {
-      callback(null, !origin || allowedCorsOrigins.has(origin));
+      callback(null, isAllowedCorsOrigin(origin, allowedCorsOrigins));
     },
   }),
 );
