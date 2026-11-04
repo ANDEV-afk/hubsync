@@ -4,7 +4,6 @@ export const HUBSPOT_SCOPES = [
   "oauth",
   "crm.objects.contacts.read",
   "crm.objects.contacts.write",
-  "crm.objects.notes.write",
 ] as const;
 
 const HUBSPOT_AUTHORIZE_URL = "https://app.hubspot.com/oauth/authorize";

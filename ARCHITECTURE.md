@@ -59,7 +59,9 @@ The required scopes are:
 - `oauth`
 - `crm.objects.contacts.read`
 - `crm.objects.contacts.write`
-- `crm.objects.notes.write`
+
+Notes sync is temporarily disabled until HubSpot grants the
+`crm.objects.notes.write` scope to the app.
 
 ## Data model
 

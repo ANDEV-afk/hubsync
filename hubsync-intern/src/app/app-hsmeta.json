@@ -8,13 +8,14 @@
     "auth": {
       "type": "oauth",
       "redirectUrls": [
-        "https://hubsync-be.onrender.com/auth/hubspot/callback"
+        "https://hubsync-be.onrender.com/auth/hubspot/callback",
+        "http://localhost:4000/auth/hubspot/callback",
+        "https://landing-placard-tiptoeing.ngrok-free.dev/auth/hubspot/callback"
       ],
       "requiredScopes": [
         "oauth",
         "crm.objects.contacts.read",
-        "crm.objects.contacts.write",
-        "crm.objects.notes.write"
+        "crm.objects.contacts.write"
       ],
       "optionalScopes": [],
       "conditionallyRequiredScopes": []
